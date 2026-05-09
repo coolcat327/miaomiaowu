@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	"miaomiaowu/internal/auth"
+	"miaomiaowu/internal/notify"
 	"miaomiaowu/internal/storage"
 )
 
@@ -244,6 +246,8 @@ func handleUpdateUserConfig(w http.ResponseWriter, r *http.Request, repo *storag
 	if subInfoTrafficPrefix == "" {
 		subInfoTrafficPrefix = "⌛剩余流量"
 	}
+	oldSysCfg, _ := repo.GetSystemConfig(r.Context())
+
 	systemConfig := storage.SystemConfig{
 		ProxyGroupsSourceURL:    proxyGroupsSourceURL,
 		ClientCompatibilityMode: payload.ClientCompatibilityMode,
@@ -259,6 +263,20 @@ func handleUpdateUserConfig(w http.ResponseWriter, r *http.Request, repo *storag
 	if err := repo.UpdateSystemConfig(r.Context(), systemConfig); err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("update system config: %w", err))
 		return
+	}
+
+	if oldSysCfg.SilentMode != payload.SilentMode {
+		if n := GetNotifier(); n != nil {
+			status := "已关闭"
+			if payload.SilentMode {
+				status = "已开启"
+			}
+			go n.Send(context.Background(), notify.Event{
+				Type:    notify.EventSilentMode,
+				Title:   "静默模式变更",
+				Message: fmt.Sprintf("静默模式 %s", status),
+			})
+		}
 	}
 
 	resp := userConfigResponse{

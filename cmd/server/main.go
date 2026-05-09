@@ -14,6 +14,7 @@ import (
 	"miaomiaowu/internal/auth"
 	"miaomiaowu/internal/handler"
 	"miaomiaowu/internal/logger"
+	"miaomiaowu/internal/notify"
 	"miaomiaowu/internal/proxygroups"
 	"miaomiaowu/internal/storage"
 	"miaomiaowu/internal/version"
@@ -25,7 +26,7 @@ import (
 func main() {
 	// 初始化logger
 	logger.Init()
-	logger.Info("喵喵屋服务器启动中", "version", version.Version)
+	logger.Info("妙妙屋服务器启动中", "version", version.Version)
 
 	// 启动日志清理任务（每天凌晨3点清理7天前的日志）
 	go startLogCleanup()
@@ -109,6 +110,22 @@ func main() {
 
 	syncSubscribeFilesToDatabase(repo, subscribeDir)
 
+	// 初始化通知模块
+	if sysCfg, err := repo.GetSystemConfig(context.Background()); err == nil {
+		handler.InitNotifier(notify.Config{
+			Enabled:              sysCfg.NotifyEnabled,
+			BotToken:             sysCfg.TelegramBotToken,
+			ChatID:               sysCfg.TelegramChatID,
+			NotifySubscribeFetch: sysCfg.NotifySubscribeFetch,
+			NotifyLogin:          sysCfg.NotifyLogin,
+			NotifyIPBan:          sysCfg.NotifyIPBan,
+			NotifySilentMode:     sysCfg.NotifySilentMode,
+			NotifyDailyTraffic:   sysCfg.NotifyDailyTraffic,
+			NotifyExpiry:         sysCfg.NotifyExpiry,
+			DailyTrafficTime:     sysCfg.NotifyDailyTrafficTime,
+		})
+	}
+
 	// 启动时初始化代理集合缓存
 	go handler.InitProxyProviderCacheOnStartup(repo)
 
@@ -166,6 +183,8 @@ func main() {
 	mux.Handle("/api/admin/update/apply", auth.RequireAdmin(tokenStore, userRepo, handler.NewUpdateApplyHandler()))
 	mux.Handle("/api/admin/update/apply-sse", auth.RequireAdmin(tokenStore, userRepo, handler.NewUpdateApplySSEHandler()))
 	mux.Handle("/api/admin/proxy-groups/sync", auth.RequireAdmin(tokenStore, userRepo, handler.NewProxyGroupsSyncHandler(repo, proxyGroupsStore)))
+	mux.Handle("/api/admin/notify-config", auth.RequireAdmin(tokenStore, userRepo, handler.NewNotifyConfigHandler(repo)))
+	mux.Handle("/api/admin/notify-config/", auth.RequireAdmin(tokenStore, userRepo, handler.NewNotifyConfigHandler(repo)))
 
 	// TCPing endpoint (admin only)
 	mux.Handle("/api/admin/tcping", auth.RequireAdmin(tokenStore, userRepo, handler.NewTCPingHandler()))
@@ -261,6 +280,9 @@ func main() {
 	collectorCtx, stopCollector := context.WithCancel(context.Background())
 	go startTrafficCollector(collectorCtx, trafficHandler)
 
+	notifyCtx, stopNotify := context.WithCancel(context.Background())
+	go handler.StartNotifyScheduler(notifyCtx, repo)
+
 	go func() {
 		logger.Info("HTTP服务器启动", "version", version.Version, "address", addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -269,7 +291,7 @@ func main() {
 		}
 	}()
 
-	waitForShutdown(srv, stopCollector, stopProxySync)
+	waitForShutdown(srv, stopCollector, stopProxySync, stopNotify)
 }
 
 func getAddr() string {

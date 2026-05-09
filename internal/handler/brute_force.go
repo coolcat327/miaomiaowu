@@ -1,12 +1,14 @@
 package handler
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"sync"
 	"time"
 
 	"miaomiaowu/internal/logger"
+	"miaomiaowu/internal/notify"
 )
 
 var globalBruteForceProtector *BruteForceProtector
@@ -112,6 +114,14 @@ func (p *BruteForceProtector) RecordFailure(ip, path string) {
 			"失败次数", rec.count,
 			"封禁至", rec.blockUntil.Format("2006-01-02 15:04:05"),
 		)
+
+		if n := GetNotifier(); n != nil {
+			go n.Send(context.Background(), notify.Event{
+				Type:    notify.EventIPBan,
+				Title:   "IP 封禁",
+				Message: fmt.Sprintf("IP `%s` 已被封禁\n触发路径: `%s`\n失败次数: %d\n封禁至: %s", ip, path, rec.count, rec.blockUntil.Format("2006-01-02 15:04:05")),
+			})
+		}
 	} else {
 		logger.Warn("⚠️ [BRUTE_FORCE] 订阅探测失败",
 			"ip", ip,

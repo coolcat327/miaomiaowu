@@ -15,12 +15,27 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Input } from '@/components/ui/input'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { CircleHelp, RefreshCw } from 'lucide-react'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { CircleHelp, RefreshCw, Settings } from 'lucide-react'
 import { api } from '@/lib/api'
 import { handleServerError } from '@/lib/handle-server-error'
 import { useAuthStore } from '@/stores/auth-store'
 import { useSyncProxyGroupCategories } from '@/hooks/use-proxy-groups'
+
+interface NotifyConfig {
+  notify_enabled: boolean
+  telegram_bot_token: string
+  telegram_chat_id: string
+  notify_subscribe_fetch: boolean
+  notify_login: boolean
+  notify_ip_ban: boolean
+  notify_silent_mode: boolean
+  notify_daily_traffic: boolean
+  notify_expiry: boolean
+  notify_daily_traffic_time: string
+}
 
 interface UserConfig {
   force_sync_external: boolean
@@ -79,8 +94,73 @@ function SystemSettingsPage() {
   const [enableSubTrafficHeader, setEnableSubTrafficHeader] = useState(true)
   const [enableOverrideScripts, setEnableOverrideScripts] = useState(false)
 
+  // Notification config state
+  const [notifyConfig, setNotifyConfig] = useState<NotifyConfig>({
+    notify_enabled: false,
+    telegram_bot_token: '',
+    telegram_chat_id: '',
+    notify_subscribe_fetch: true,
+    notify_login: true,
+    notify_ip_ban: true,
+    notify_silent_mode: true,
+    notify_daily_traffic: false,
+    notify_expiry: true,
+    notify_daily_traffic_time: '08:00',
+  })
+
   // Sync proxy group categories mutation
   const syncProxyGroupsMutation = useSyncProxyGroupCategories()
+
+  // Notify config query
+  const { data: notifyConfigData } = useQuery({
+    queryKey: ['notify-config'],
+    queryFn: async () => {
+      const response = await api.get('/api/admin/notify-config')
+      return response.data as NotifyConfig
+    },
+    enabled: Boolean(auth.accessToken),
+    staleTime: 5 * 60 * 1000,
+  })
+
+  useEffect(() => {
+    if (notifyConfigData) {
+      setNotifyConfig(notifyConfigData)
+    }
+  }, [notifyConfigData])
+
+  const updateNotifyMutation = useMutation({
+    mutationFn: async (data: NotifyConfig) => {
+      await api.put('/api/admin/notify-config', data)
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['notify-config'] })
+      setNotifyConfig(variables)
+      toast.success('通知配置已更新')
+    },
+    onError: (error) => {
+      handleServerError(error)
+      toast.error('更新通知配置失败')
+    },
+  })
+
+  const testNotifyMutation = useMutation({
+    mutationFn: async () => {
+      await api.post('/api/admin/notify-config/test')
+    },
+    onSuccess: () => {
+      toast.success('测试通知已发送')
+    },
+    onError: (error) => {
+      handleServerError(error)
+      toast.error('发送测试通知失败')
+    },
+  })
+
+  const saveNotifyConfig = (updates: Partial<NotifyConfig>) => {
+    const newConfig = { ...notifyConfig, ...updates }
+    setNotifyConfig(newConfig)
+    updateNotifyMutation.mutate(newConfig)
+  }
 
   const { data: userConfig, isLoading: loadingConfig } = useQuery({
     queryKey: ['user-config'],
@@ -548,6 +628,128 @@ function SystemSettingsPage() {
                     checked={enableOverrideScripts}
                     onCheckedChange={(checked) => updateConfig({ enable_override_scripts: checked })}
                     disabled={loadingConfig || updateConfigMutation.isPending}
+                  />
+                </div>
+
+                {/* 通知推送 */}
+                <div className='flex items-center justify-between rounded-lg border p-3'>
+                  <div className='flex items-center gap-2'>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant='outline' size='icon' className='h-7 w-7'>
+                          <Settings className='h-3.5 w-3.5' />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className='w-80' side='bottom' align='start'>
+                        <div className='space-y-4'>
+                          <div className='space-y-2'>
+                            <Label htmlFor='telegram-bot-token'>Bot Token</Label>
+                            <Input
+                              id='telegram-bot-token'
+                              value={notifyConfig.telegram_bot_token}
+                              onChange={(e) => setNotifyConfig({ ...notifyConfig, telegram_bot_token: e.target.value })}
+                              onBlur={() => saveNotifyConfig({ telegram_bot_token: notifyConfig.telegram_bot_token })}
+                              placeholder='123456:ABC-DEF...'
+                            />
+                          </div>
+                          <div className='space-y-2'>
+                            <Label htmlFor='telegram-chat-id'>Chat ID</Label>
+                            <Input
+                              id='telegram-chat-id'
+                              value={notifyConfig.telegram_chat_id}
+                              onChange={(e) => setNotifyConfig({ ...notifyConfig, telegram_chat_id: e.target.value })}
+                              onBlur={() => saveNotifyConfig({ telegram_chat_id: notifyConfig.telegram_chat_id })}
+                              placeholder='-1001234567890'
+                            />
+                          </div>
+                          <Button
+                            variant='outline'
+                            size='sm'
+                            className='w-full'
+                            onClick={() => testNotifyMutation.mutate()}
+                            disabled={testNotifyMutation.isPending || !notifyConfig.telegram_bot_token || !notifyConfig.telegram_chat_id}
+                          >
+                            {testNotifyMutation.isPending ? '发送中...' : '发送测试通知'}
+                          </Button>
+                          <div className='border-t pt-3 space-y-2'>
+                            <div className='flex items-center gap-2'>
+                              <Checkbox
+                                id='notify-subscribe-fetch'
+                                checked={notifyConfig.notify_subscribe_fetch}
+                                onCheckedChange={(checked) => saveNotifyConfig({ notify_subscribe_fetch: checked === true })}
+                              />
+                              <Label htmlFor='notify-subscribe-fetch' className='cursor-pointer text-sm'>订阅获取通知</Label>
+                            </div>
+                            <div className='flex items-center gap-2'>
+                              <Checkbox
+                                id='notify-login'
+                                checked={notifyConfig.notify_login}
+                                onCheckedChange={(checked) => saveNotifyConfig({ notify_login: checked === true })}
+                              />
+                              <Label htmlFor='notify-login' className='cursor-pointer text-sm'>登录通知</Label>
+                            </div>
+                            <div className='flex items-center gap-2'>
+                              <Checkbox
+                                id='notify-ip-ban'
+                                checked={notifyConfig.notify_ip_ban}
+                                onCheckedChange={(checked) => saveNotifyConfig({ notify_ip_ban: checked === true })}
+                              />
+                              <Label htmlFor='notify-ip-ban' className='cursor-pointer text-sm'>IP 封禁通知</Label>
+                            </div>
+                            <div className='flex items-center gap-2'>
+                              <Checkbox
+                                id='notify-silent-mode'
+                                checked={notifyConfig.notify_silent_mode}
+                                onCheckedChange={(checked) => saveNotifyConfig({ notify_silent_mode: checked === true })}
+                              />
+                              <Label htmlFor='notify-silent-mode' className='cursor-pointer text-sm'>静默模式通知</Label>
+                            </div>
+                            <div className='flex items-center gap-2'>
+                              <Checkbox
+                                id='notify-expiry'
+                                checked={notifyConfig.notify_expiry}
+                                onCheckedChange={(checked) => saveNotifyConfig({ notify_expiry: checked === true })}
+                              />
+                              <Label htmlFor='notify-expiry' className='cursor-pointer text-sm'>订阅到期通知</Label>
+                            </div>
+                            <div className='flex items-center gap-2'>
+                              <Checkbox
+                                id='notify-daily-traffic'
+                                checked={notifyConfig.notify_daily_traffic}
+                                onCheckedChange={(checked) => saveNotifyConfig({ notify_daily_traffic: checked === true })}
+                              />
+                              <Label htmlFor='notify-daily-traffic' className='cursor-pointer text-sm'>每日流量通知</Label>
+                              {notifyConfig.notify_daily_traffic && (
+                                <Input
+                                  type='time'
+                                  value={notifyConfig.notify_daily_traffic_time}
+                                  onChange={(e) => setNotifyConfig({ ...notifyConfig, notify_daily_traffic_time: e.target.value })}
+                                  onBlur={() => saveNotifyConfig({ notify_daily_traffic_time: notifyConfig.notify_daily_traffic_time })}
+                                  className='h-7 w-24 text-xs'
+                                />
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                    <Label htmlFor='notify-enabled' className='cursor-pointer'>
+                      通知推送
+                    </Label>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <CircleHelp className='h-4 w-4 text-muted-foreground cursor-help' />
+                      </TooltipTrigger>
+                      <TooltipContent side='top' className='max-w-xs'>
+                        <p>开启后，系统会通过 Telegram 发送关键事件通知。点击配置按钮设置 Bot Token 和通知类型。</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                  <Switch
+                    id='notify-enabled'
+                    checked={notifyConfig.notify_enabled}
+                    onCheckedChange={(checked) => saveNotifyConfig({ notify_enabled: checked })}
+                    disabled={updateNotifyMutation.isPending}
                   />
                 </div>
 

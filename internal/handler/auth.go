@@ -3,12 +3,14 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
 	"miaomiaowu/internal/auth"
 	"miaomiaowu/internal/logger"
+	"miaomiaowu/internal/notify"
 	"miaomiaowu/internal/storage"
 )
 
@@ -155,6 +157,14 @@ func NewLoginHandler(manager *auth.Manager, tokens *auth.TokenStore, repo *stora
 			"client_ip", clientIP,
 			"remember_me", payload.RememberMe,
 			"expires_at", expiry.Format("2006-01-02 15:04:05"))
+
+		if n := GetNotifier(); n != nil {
+			go n.Send(r.Context(), notify.Event{
+				Type:    notify.EventLogin,
+				Title:   "登录通知",
+				Message: fmt.Sprintf("用户 `%s` 登录成功\nIP: `%s`", username, clientIP),
+			})
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)

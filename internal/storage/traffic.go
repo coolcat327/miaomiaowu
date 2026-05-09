@@ -277,6 +277,17 @@ type SystemConfig struct {
 	EnableShortLink         bool   // 启用短链接（全局设置）
 	EnableSubTrafficHeader  bool   // 启用订阅响应头流量信息
 	EnableOverrideScripts   bool   // 启用覆写脚本功能
+	// Telegram notification settings
+	NotifyEnabled          bool
+	TelegramBotToken       string
+	TelegramChatID         string
+	NotifySubscribeFetch   bool
+	NotifyLogin            bool
+	NotifyIPBan            bool
+	NotifySilentMode       bool
+	NotifyDailyTraffic     bool
+	NotifyExpiry           bool
+	NotifyDailyTrafficTime string // "HH:MM" default "08:00"
 }
 
 // ExternalSubscription represents an external subscription URL imported by user.
@@ -952,6 +963,38 @@ WHERE NOT EXISTS (SELECT 1 FROM system_config WHERE id = 1);
 
 	// Add enable_sub_traffic_header column to system_config table (default enabled)
 	if err := r.ensureSystemConfigColumn("enable_sub_traffic_header", "INTEGER NOT NULL DEFAULT 1"); err != nil {
+		return err
+	}
+
+	// Telegram notification columns
+	if err := r.ensureSystemConfigColumn("notify_enabled", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := r.ensureSystemConfigColumn("telegram_bot_token", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := r.ensureSystemConfigColumn("telegram_chat_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := r.ensureSystemConfigColumn("notify_subscribe_fetch", "INTEGER NOT NULL DEFAULT 1"); err != nil {
+		return err
+	}
+	if err := r.ensureSystemConfigColumn("notify_login", "INTEGER NOT NULL DEFAULT 1"); err != nil {
+		return err
+	}
+	if err := r.ensureSystemConfigColumn("notify_ip_ban", "INTEGER NOT NULL DEFAULT 1"); err != nil {
+		return err
+	}
+	if err := r.ensureSystemConfigColumn("notify_silent_mode", "INTEGER NOT NULL DEFAULT 1"); err != nil {
+		return err
+	}
+	if err := r.ensureSystemConfigColumn("notify_daily_traffic", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := r.ensureSystemConfigColumn("notify_expiry", "INTEGER NOT NULL DEFAULT 1"); err != nil {
+		return err
+	}
+	if err := r.ensureSystemConfigColumn("notify_daily_traffic_time", "TEXT NOT NULL DEFAULT '08:00'"); err != nil {
 		return err
 	}
 
@@ -4601,26 +4644,39 @@ func (r *TrafficRepository) DeleteProxyProviderConfig(ctx context.Context, id in
 func (r *TrafficRepository) GetSystemConfig(ctx context.Context) (SystemConfig, error) {
 	const query = `
 SELECT proxy_groups_source_url, client_compatibility_mode, silent_mode, silent_mode_timeout,
-       enable_sub_info_nodes, sub_info_expire_prefix, sub_info_traffic_prefix, COALESCE(enable_short_link, 1), COALESCE(enable_sub_traffic_header, 1), COALESCE(enable_override_scripts, 0)
+       enable_sub_info_nodes, sub_info_expire_prefix, sub_info_traffic_prefix,
+       COALESCE(enable_short_link, 1), COALESCE(enable_sub_traffic_header, 1), COALESCE(enable_override_scripts, 0),
+       COALESCE(notify_enabled, 0), COALESCE(telegram_bot_token, ''), COALESCE(telegram_chat_id, ''),
+       COALESCE(notify_subscribe_fetch, 1), COALESCE(notify_login, 1), COALESCE(notify_ip_ban, 1),
+       COALESCE(notify_silent_mode, 1), COALESCE(notify_daily_traffic, 0), COALESCE(notify_expiry, 1),
+       COALESCE(notify_daily_traffic_time, '08:00')
 FROM system_config
 WHERE id = 1
 `
 
 	var cfg SystemConfig
-	var compatibilityMode, silentMode, silentModeTimeout, enableSubInfoNodes, enableShortLinkInt, enableSubTrafficHeaderInt, enableOverrideScriptsInt int
+	var compatibilityMode, silentMode, silentModeTimeout, enableSubInfoNodes int
+	var enableShortLinkInt, enableSubTrafficHeaderInt, enableOverrideScriptsInt int
+	var notifyEnabledInt, notifySubFetchInt, notifyLoginInt, notifyIPBanInt int
+	var notifySilentModeInt, notifyDailyTrafficInt, notifyExpiryInt int
 	err := r.db.QueryRowContext(ctx, query).Scan(
 		&cfg.ProxyGroupsSourceURL, &compatibilityMode, &silentMode, &silentModeTimeout,
-		&enableSubInfoNodes, &cfg.SubInfoExpirePrefix, &cfg.SubInfoTrafficPrefix, &enableShortLinkInt, &enableSubTrafficHeaderInt, &enableOverrideScriptsInt,
+		&enableSubInfoNodes, &cfg.SubInfoExpirePrefix, &cfg.SubInfoTrafficPrefix,
+		&enableShortLinkInt, &enableSubTrafficHeaderInt, &enableOverrideScriptsInt,
+		&notifyEnabledInt, &cfg.TelegramBotToken, &cfg.TelegramChatID,
+		&notifySubFetchInt, &notifyLoginInt, &notifyIPBanInt,
+		&notifySilentModeInt, &notifyDailyTrafficInt, &notifyExpiryInt,
+		&cfg.NotifyDailyTrafficTime,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			// Return empty config if row doesn't exist (defensive)
 			return SystemConfig{
 				SilentModeTimeout:      15,
 				SubInfoExpirePrefix:    "📅过期时间",
 				SubInfoTrafficPrefix:   "⌛剩余流量",
 				EnableShortLink:        true,
 				EnableSubTrafficHeader: true,
+				NotifyDailyTrafficTime: "08:00",
 			}, nil
 		}
 		return SystemConfig{}, fmt.Errorf("query system config: %w", err)
@@ -4636,11 +4692,21 @@ WHERE id = 1
 	cfg.EnableShortLink = enableShortLinkInt != 0
 	cfg.EnableSubTrafficHeader = enableSubTrafficHeaderInt != 0
 	cfg.EnableOverrideScripts = enableOverrideScriptsInt != 0
+	cfg.NotifyEnabled = notifyEnabledInt != 0
+	cfg.NotifySubscribeFetch = notifySubFetchInt != 0
+	cfg.NotifyLogin = notifyLoginInt != 0
+	cfg.NotifyIPBan = notifyIPBanInt != 0
+	cfg.NotifySilentMode = notifySilentModeInt != 0
+	cfg.NotifyDailyTraffic = notifyDailyTrafficInt != 0
+	cfg.NotifyExpiry = notifyExpiryInt != 0
 	if cfg.SubInfoExpirePrefix == "" {
 		cfg.SubInfoExpirePrefix = "📅过期时间"
 	}
 	if cfg.SubInfoTrafficPrefix == "" {
 		cfg.SubInfoTrafficPrefix = "⌛剩余流量"
+	}
+	if cfg.NotifyDailyTrafficTime == "" {
+		cfg.NotifyDailyTrafficTime = "08:00"
 	}
 	return cfg, nil
 }
@@ -4660,37 +4726,30 @@ SET proxy_groups_source_url = ?,
     enable_short_link = ?,
     enable_sub_traffic_header = ?,
     enable_override_scripts = ?,
+    notify_enabled = ?,
+    telegram_bot_token = ?,
+    telegram_chat_id = ?,
+    notify_subscribe_fetch = ?,
+    notify_login = ?,
+    notify_ip_ban = ?,
+    notify_silent_mode = ?,
+    notify_daily_traffic = ?,
+    notify_expiry = ?,
+    notify_daily_traffic_time = ?,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = 1
 `
 
-	compatibilityMode := 0
-	if cfg.ClientCompatibilityMode {
-		compatibilityMode = 1
+	boolToInt := func(b bool) int {
+		if b {
+			return 1
+		}
+		return 0
 	}
-	silentMode := 0
-	if cfg.SilentMode {
-		silentMode = 1
-	}
+
 	silentModeTimeout := cfg.SilentModeTimeout
 	if silentModeTimeout <= 0 {
 		silentModeTimeout = 15
-	}
-	enableSubInfoNodes := 0
-	if cfg.EnableSubInfoNodes {
-		enableSubInfoNodes = 1
-	}
-	enableShortLink := 0
-	if cfg.EnableShortLink {
-		enableShortLink = 1
-	}
-	enableSubTrafficHeader := 0
-	if cfg.EnableSubTrafficHeader {
-		enableSubTrafficHeader = 1
-	}
-	enableOverrideScripts := 0
-	if cfg.EnableOverrideScripts {
-		enableOverrideScripts = 1
 	}
 	subInfoExpirePrefix := cfg.SubInfoExpirePrefix
 	if subInfoExpirePrefix == "" {
@@ -4700,10 +4759,19 @@ WHERE id = 1
 	if subInfoTrafficPrefix == "" {
 		subInfoTrafficPrefix = "⌛剩余流量"
 	}
+	dailyTrafficTime := cfg.NotifyDailyTrafficTime
+	if dailyTrafficTime == "" {
+		dailyTrafficTime = "08:00"
+	}
 
 	result, err := r.db.ExecContext(ctx, updateStmt,
-		cfg.ProxyGroupsSourceURL, compatibilityMode, silentMode, silentModeTimeout,
-		enableSubInfoNodes, subInfoExpirePrefix, subInfoTrafficPrefix, enableShortLink, enableSubTrafficHeader, enableOverrideScripts,
+		cfg.ProxyGroupsSourceURL, boolToInt(cfg.ClientCompatibilityMode), boolToInt(cfg.SilentMode), silentModeTimeout,
+		boolToInt(cfg.EnableSubInfoNodes), subInfoExpirePrefix, subInfoTrafficPrefix,
+		boolToInt(cfg.EnableShortLink), boolToInt(cfg.EnableSubTrafficHeader), boolToInt(cfg.EnableOverrideScripts),
+		boolToInt(cfg.NotifyEnabled), cfg.TelegramBotToken, cfg.TelegramChatID,
+		boolToInt(cfg.NotifySubscribeFetch), boolToInt(cfg.NotifyLogin), boolToInt(cfg.NotifyIPBan),
+		boolToInt(cfg.NotifySilentMode), boolToInt(cfg.NotifyDailyTraffic), boolToInt(cfg.NotifyExpiry),
+		dailyTrafficTime,
 	)
 	if err != nil {
 		return fmt.Errorf("update system config: %w", err)
@@ -4718,12 +4786,14 @@ WHERE id = 1
 	if rowsAffected == 0 {
 		const insertStmt = `
 INSERT INTO system_config (id, proxy_groups_source_url, client_compatibility_mode, silent_mode, silent_mode_timeout,
-                           enable_sub_info_nodes, sub_info_expire_prefix, sub_info_traffic_prefix, enable_short_link, enable_sub_traffic_header, enable_override_scripts)
+                           enable_sub_info_nodes, sub_info_expire_prefix, sub_info_traffic_prefix, enable_short_link,
+                           enable_sub_traffic_header, enable_override_scripts)
 VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 		if _, err := r.db.ExecContext(ctx, insertStmt,
-			cfg.ProxyGroupsSourceURL, compatibilityMode, silentMode, silentModeTimeout,
-			enableSubInfoNodes, subInfoExpirePrefix, subInfoTrafficPrefix, enableShortLink, enableSubTrafficHeader, enableOverrideScripts,
+			cfg.ProxyGroupsSourceURL, boolToInt(cfg.ClientCompatibilityMode), boolToInt(cfg.SilentMode), silentModeTimeout,
+			boolToInt(cfg.EnableSubInfoNodes), subInfoExpirePrefix, subInfoTrafficPrefix,
+			boolToInt(cfg.EnableShortLink), boolToInt(cfg.EnableSubTrafficHeader), boolToInt(cfg.EnableOverrideScripts),
 		); err != nil {
 			return fmt.Errorf("insert system config: %w", err)
 		}

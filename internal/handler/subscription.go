@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"miaomiaowu/internal/auth"
+	"miaomiaowu/internal/notify"
 	"miaomiaowu/internal/scriptengine"
 	"miaomiaowu/internal/storage"
 	"miaomiaowu/internal/substore"
@@ -907,6 +908,14 @@ func (h *SubscriptionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		"bytes", len(data),
 		"duration_ms", time.Since(requestStart).Milliseconds(),
 	)
+
+	if n := GetNotifier(); n != nil {
+		go n.Send(context.Background(), notify.Event{
+			Type:    notify.EventSubscribeFetch,
+			Title:   "订阅获取",
+			Message: fmt.Sprintf("用户 `%s` 获取了订阅 `%s`\n客户端: %s", username, displayName, clientType),
+		})
+	}
 
 	// 更新静默模式活跃时间
 	clientIP := GetClientIP(r)
