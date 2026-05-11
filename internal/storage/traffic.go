@@ -289,6 +289,7 @@ type SystemConfig struct {
 	NotifyDailyTraffic     bool
 	NotifyExpiry           bool
 	NotifyDailyTrafficTime string // "HH:MM" default "08:00"
+	EnableTwoFactor        bool
 }
 
 // ExternalSubscription represents an external subscription URL imported by user.
@@ -546,6 +547,15 @@ CREATE TABLE IF NOT EXISTS users (
 	}
 
 	if err := r.ensureUserColumn("remark", "TEXT"); err != nil {
+		return err
+	}
+	if err := r.ensureUserColumn("totp_secret", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := r.ensureUserColumn("totp_enabled", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := r.ensureUserColumn("recovery_codes", "TEXT NOT NULL DEFAULT '[]'"); err != nil {
 		return err
 	}
 
@@ -1004,6 +1014,9 @@ WHERE NOT EXISTS (SELECT 1 FROM system_config WHERE id = 1);
 		return err
 	}
 	if err := r.ensureSystemConfigColumn("notify_daily_traffic_time", "TEXT NOT NULL DEFAULT '08:00'"); err != nil {
+		return err
+	}
+	if err := r.ensureSystemConfigColumn("enable_two_factor", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
 
@@ -2730,16 +2743,19 @@ type RuleVersion struct {
 
 // User represents an authenticated account stored in the repository.
 type User struct {
-	Username     string
-	PasswordHash string
-	Email        string
-	Nickname     string
-	AvatarURL    string
-	Role         string
-	IsActive     bool
-	Remark       string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	Username      string
+	PasswordHash  string
+	Email         string
+	Nickname      string
+	AvatarURL     string
+	Role          string
+	IsActive      bool
+	Remark        string
+	TOTPSecret    string
+	TOTPEnabled   bool
+	RecoveryCodes string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // UserProfileUpdate captures editable profile fields for a user.
@@ -2823,9 +2839,9 @@ func (r *TrafficRepository) GetUser(ctx context.Context, username string) (User,
 		return user, errors.New("username is required")
 	}
 
-	row := r.db.QueryRowContext(ctx, `SELECT username, password_hash, COALESCE(email, ''), COALESCE(nickname, ''), COALESCE(avatar_url, ''), COALESCE(role, ''), is_active, created_at, updated_at FROM users WHERE username = ? LIMIT 1`, username)
-	var active int
-	if err := row.Scan(&user.Username, &user.PasswordHash, &user.Email, &user.Nickname, &user.AvatarURL, &user.Role, &active, &user.CreatedAt, &user.UpdatedAt); err != nil {
+	row := r.db.QueryRowContext(ctx, `SELECT username, password_hash, COALESCE(email, ''), COALESCE(nickname, ''), COALESCE(avatar_url, ''), COALESCE(role, ''), is_active, COALESCE(totp_secret, ''), COALESCE(totp_enabled, 0), COALESCE(recovery_codes, '[]'), created_at, updated_at FROM users WHERE username = ? LIMIT 1`, username)
+	var active, totpEnabled int
+	if err := row.Scan(&user.Username, &user.PasswordHash, &user.Email, &user.Nickname, &user.AvatarURL, &user.Role, &active, &user.TOTPSecret, &totpEnabled, &user.RecoveryCodes, &user.CreatedAt, &user.UpdatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return user, ErrUserNotFound
 		}
@@ -2838,6 +2854,7 @@ func (r *TrafficRepository) GetUser(ctx context.Context, username string) (User,
 		user.Role = RoleUser
 	}
 	user.IsActive = active != 0
+	user.TOTPEnabled = totpEnabled != 0
 
 	return user, nil
 }
@@ -3151,6 +3168,26 @@ func (r *TrafficRepository) UpdateUserProfile(ctx context.Context, username stri
 	}
 
 	return nil
+}
+
+func (r *TrafficRepository) SetUserTOTPSecret(ctx context.Context, username, secret string) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE users SET totp_secret = ?, updated_at = CURRENT_TIMESTAMP WHERE username = ?`, secret, username)
+	return err
+}
+
+func (r *TrafficRepository) EnableUserTOTP(ctx context.Context, username string, recoveryCodes string) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE users SET totp_enabled = 1, recovery_codes = ?, updated_at = CURRENT_TIMESTAMP WHERE username = ?`, recoveryCodes, username)
+	return err
+}
+
+func (r *TrafficRepository) DisableUserTOTP(ctx context.Context, username string) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE users SET totp_enabled = 0, totp_secret = '', recovery_codes = '[]', updated_at = CURRENT_TIMESTAMP WHERE username = ?`, username)
+	return err
+}
+
+func (r *TrafficRepository) UpdateUserRecoveryCodes(ctx context.Context, username, codes string) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE users SET recovery_codes = ?, updated_at = CURRENT_TIMESTAMP WHERE username = ?`, codes, username)
+	return err
 }
 
 // RenameUser changes a username and updates dependent tables.
@@ -4658,7 +4695,8 @@ SELECT proxy_groups_source_url, client_compatibility_mode, silent_mode, silent_m
        COALESCE(notify_enabled, 0), COALESCE(telegram_bot_token, ''), COALESCE(telegram_chat_id, ''),
        COALESCE(notify_subscribe_fetch, 1), COALESCE(notify_login, 1), COALESCE(notify_ip_ban, 1),
        COALESCE(notify_silent_mode, 1), COALESCE(notify_daily_traffic, 0), COALESCE(notify_expiry, 1),
-       COALESCE(notify_daily_traffic_time, '08:00')
+       COALESCE(notify_daily_traffic_time, '08:00'),
+       COALESCE(enable_two_factor, 0)
 FROM system_config
 WHERE id = 1
 `
@@ -4668,6 +4706,7 @@ WHERE id = 1
 	var enableShortLinkInt, enableSubTrafficHeaderInt, enableOverrideScriptsInt int
 	var notifyEnabledInt, notifySubFetchInt, notifyLoginInt, notifyIPBanInt int
 	var notifySilentModeInt, notifyDailyTrafficInt, notifyExpiryInt int
+	var enableTwoFactorInt int
 	err := r.db.QueryRowContext(ctx, query).Scan(
 		&cfg.ProxyGroupsSourceURL, &compatibilityMode, &silentMode, &silentModeTimeout,
 		&enableSubInfoNodes, &cfg.SubInfoExpirePrefix, &cfg.SubInfoTrafficPrefix,
@@ -4676,6 +4715,7 @@ WHERE id = 1
 		&notifySubFetchInt, &notifyLoginInt, &notifyIPBanInt,
 		&notifySilentModeInt, &notifyDailyTrafficInt, &notifyExpiryInt,
 		&cfg.NotifyDailyTrafficTime,
+		&enableTwoFactorInt,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -4708,6 +4748,7 @@ WHERE id = 1
 	cfg.NotifySilentMode = notifySilentModeInt != 0
 	cfg.NotifyDailyTraffic = notifyDailyTrafficInt != 0
 	cfg.NotifyExpiry = notifyExpiryInt != 0
+	cfg.EnableTwoFactor = enableTwoFactorInt != 0
 	if cfg.SubInfoExpirePrefix == "" {
 		cfg.SubInfoExpirePrefix = "📅过期时间"
 	}
@@ -4745,6 +4786,7 @@ SET proxy_groups_source_url = ?,
     notify_daily_traffic = ?,
     notify_expiry = ?,
     notify_daily_traffic_time = ?,
+    enable_two_factor = ?,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = 1
 `
@@ -4781,6 +4823,7 @@ WHERE id = 1
 		boolToInt(cfg.NotifySubscribeFetch), boolToInt(cfg.NotifyLogin), boolToInt(cfg.NotifyIPBan),
 		boolToInt(cfg.NotifySilentMode), boolToInt(cfg.NotifyDailyTraffic), boolToInt(cfg.NotifyExpiry),
 		dailyTrafficTime,
+		boolToInt(cfg.EnableTwoFactor),
 	)
 	if err != nil {
 		return fmt.Errorf("update system config: %w", err)

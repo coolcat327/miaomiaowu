@@ -24,19 +24,20 @@ type userConfigRequest struct {
 	EnableProbeBinding      bool    `json:"enable_probe_binding"`
 	CustomRulesEnabled      bool    `json:"custom_rules_enabled"`
 	EnableShortLink         bool    `json:"enable_short_link"`
-	TemplateVersion         string  `json:"template_version"` // "v1", "v2", or "v3"
+	TemplateVersion         string  `json:"template_version"`
 	EnableProxyProvider     bool    `json:"enable_proxy_provider"`
-	NodeOrder               []int64 `json:"node_order"`       // Node display order (array of node IDs)
-	NodeNameFilter          string  `json:"node_name_filter"` // Regex pattern to filter out nodes by name during sync
+	NodeOrder               []int64 `json:"node_order"`
+	NodeNameFilter          string  `json:"node_name_filter"`
 	ProxyGroupsSourceURL    string  `json:"proxy_groups_source_url"`
-	ClientCompatibilityMode bool    `json:"client_compatibility_mode"` // Auto-filter incompatible nodes for clients
-	SilentMode              bool    `json:"silent_mode"`               // Silent mode: return 404 for all requests except subscription
-	SilentModeTimeout       int     `json:"silent_mode_timeout"`       // Minutes to allow access after subscription fetch
-	EnableSubInfoNodes      bool    `json:"enable_sub_info_nodes"`     // Enable subscription info nodes
-	SubInfoExpirePrefix     string  `json:"sub_info_expire_prefix"`    // Prefix for expire time node
-	SubInfoTrafficPrefix    string  `json:"sub_info_traffic_prefix"`   // Prefix for remaining traffic node
-	EnableSubTrafficHeader  bool    `json:"enable_sub_traffic_header"` // Enable subscription-userinfo response header
-	EnableOverrideScripts  bool    `json:"enable_override_scripts"`   // Enable override scripts feature
+	ClientCompatibilityMode bool    `json:"client_compatibility_mode"`
+	SilentMode              bool    `json:"silent_mode"`
+	SilentModeTimeout       int     `json:"silent_mode_timeout"`
+	EnableSubInfoNodes      bool    `json:"enable_sub_info_nodes"`
+	SubInfoExpirePrefix     string  `json:"sub_info_expire_prefix"`
+	SubInfoTrafficPrefix    string  `json:"sub_info_traffic_prefix"`
+	EnableSubTrafficHeader  bool    `json:"enable_sub_traffic_header"`
+	EnableOverrideScripts   bool    `json:"enable_override_scripts"`
+	EnableTwoFactor         bool    `json:"enable_two_factor"`
 }
 
 type userConfigResponse struct {
@@ -49,19 +50,20 @@ type userConfigResponse struct {
 	EnableProbeBinding      bool    `json:"enable_probe_binding"`
 	CustomRulesEnabled      bool    `json:"custom_rules_enabled"`
 	EnableShortLink         bool    `json:"enable_short_link"`
-	TemplateVersion         string  `json:"template_version"` // "v1", "v2", or "v3"
+	TemplateVersion         string  `json:"template_version"`
 	EnableProxyProvider     bool    `json:"enable_proxy_provider"`
-	NodeOrder               []int64 `json:"node_order"`       // Node display order (array of node IDs)
-	NodeNameFilter          string  `json:"node_name_filter"` // Regex pattern to filter out nodes by name during sync
+	NodeOrder               []int64 `json:"node_order"`
+	NodeNameFilter          string  `json:"node_name_filter"`
 	ProxyGroupsSourceURL    string  `json:"proxy_groups_source_url"`
-	ClientCompatibilityMode bool    `json:"client_compatibility_mode"` // Auto-filter incompatible nodes for clients
-	SilentMode              bool    `json:"silent_mode"`               // Silent mode: return 404 for all requests except subscription
-	SilentModeTimeout       int     `json:"silent_mode_timeout"`       // Minutes to allow access after subscription fetch
-	EnableSubInfoNodes      bool    `json:"enable_sub_info_nodes"`     // Enable subscription info nodes
-	SubInfoExpirePrefix     string  `json:"sub_info_expire_prefix"`    // Prefix for expire time node
-	SubInfoTrafficPrefix    string  `json:"sub_info_traffic_prefix"`   // Prefix for remaining traffic node
-	EnableSubTrafficHeader  bool    `json:"enable_sub_traffic_header"` // Enable subscription-userinfo response header
-	EnableOverrideScripts  bool    `json:"enable_override_scripts"`   // Enable override scripts feature
+	ClientCompatibilityMode bool    `json:"client_compatibility_mode"`
+	SilentMode              bool    `json:"silent_mode"`
+	SilentModeTimeout       int     `json:"silent_mode_timeout"`
+	EnableSubInfoNodes      bool    `json:"enable_sub_info_nodes"`
+	SubInfoExpirePrefix     string  `json:"sub_info_expire_prefix"`
+	SubInfoTrafficPrefix    string  `json:"sub_info_traffic_prefix"`
+	EnableSubTrafficHeader  bool    `json:"enable_sub_traffic_header"`
+	EnableOverrideScripts   bool    `json:"enable_override_scripts"`
+	EnableTwoFactor         bool    `json:"enable_two_factor"`
 }
 
 func NewUserConfigHandler(repo *storage.TrafficRepository) http.Handler {
@@ -122,6 +124,7 @@ func handleGetUserConfig(w http.ResponseWriter, r *http.Request, repo *storage.T
 				SubInfoTrafficPrefix:    systemConfig.SubInfoTrafficPrefix,
 				EnableSubTrafficHeader:  systemConfig.EnableSubTrafficHeader,
 				EnableOverrideScripts:  systemConfig.EnableOverrideScripts,
+				EnableTwoFactor:         systemConfig.EnableTwoFactor,
 			}
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
@@ -155,6 +158,7 @@ func handleGetUserConfig(w http.ResponseWriter, r *http.Request, repo *storage.T
 		SubInfoTrafficPrefix:    systemConfig.SubInfoTrafficPrefix,
 		EnableSubTrafficHeader:  systemConfig.EnableSubTrafficHeader,
 		EnableOverrideScripts:  systemConfig.EnableOverrideScripts,
+		EnableTwoFactor:         systemConfig.EnableTwoFactor,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -248,18 +252,18 @@ func handleUpdateUserConfig(w http.ResponseWriter, r *http.Request, repo *storag
 	}
 	oldSysCfg, _ := repo.GetSystemConfig(r.Context())
 
-	systemConfig := storage.SystemConfig{
-		ProxyGroupsSourceURL:    proxyGroupsSourceURL,
-		ClientCompatibilityMode: payload.ClientCompatibilityMode,
-		SilentMode:              payload.SilentMode,
-		SilentModeTimeout:       silentModeTimeout,
-		EnableSubInfoNodes:      payload.EnableSubInfoNodes,
-		SubInfoExpirePrefix:     subInfoExpirePrefix,
-		SubInfoTrafficPrefix:    subInfoTrafficPrefix,
-		EnableShortLink:         payload.EnableShortLink,
-		EnableSubTrafficHeader:  payload.EnableSubTrafficHeader,
-		EnableOverrideScripts:   payload.EnableOverrideScripts,
-	}
+	systemConfig := oldSysCfg
+	systemConfig.ProxyGroupsSourceURL = proxyGroupsSourceURL
+	systemConfig.ClientCompatibilityMode = payload.ClientCompatibilityMode
+	systemConfig.SilentMode = payload.SilentMode
+	systemConfig.SilentModeTimeout = silentModeTimeout
+	systemConfig.EnableSubInfoNodes = payload.EnableSubInfoNodes
+	systemConfig.SubInfoExpirePrefix = subInfoExpirePrefix
+	systemConfig.SubInfoTrafficPrefix = subInfoTrafficPrefix
+	systemConfig.EnableShortLink = payload.EnableShortLink
+	systemConfig.EnableSubTrafficHeader = payload.EnableSubTrafficHeader
+	systemConfig.EnableOverrideScripts = payload.EnableOverrideScripts
+	systemConfig.EnableTwoFactor = payload.EnableTwoFactor
 	if err := repo.UpdateSystemConfig(r.Context(), systemConfig); err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("update system config: %w", err))
 		return
@@ -302,6 +306,7 @@ func handleUpdateUserConfig(w http.ResponseWriter, r *http.Request, repo *storag
 		SubInfoTrafficPrefix:    subInfoTrafficPrefix,
 		EnableSubTrafficHeader:  payload.EnableSubTrafficHeader,
 		EnableOverrideScripts:  payload.EnableOverrideScripts,
+		EnableTwoFactor:         payload.EnableTwoFactor,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

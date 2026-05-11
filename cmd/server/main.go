@@ -47,6 +47,7 @@ func main() {
 	}
 
 	tokenStore := auth.NewTokenStore(24 * time.Hour)
+	twoFactorStore := auth.NewTwoFactorPendingStore(5 * time.Minute)
 
 	// Load persisted sessions from database
 	ctx := context.Background()
@@ -141,7 +142,9 @@ func main() {
 	mux.Handle("/api/setup/status", handler.NewSetupStatusHandler(repo))
 	mux.Handle("/api/setup/init", handler.NewInitialSetupHandler(repo))
 	mux.Handle("/api/setup/restore-backup", handler.NewSetupRestoreBackupHandler(repo))
-	mux.Handle("/api/login", handler.NewLoginHandler(authManager, tokenStore, repo, loginRateLimiter))
+	mux.Handle("/api/login", handler.NewLoginHandler(authManager, tokenStore, repo, loginRateLimiter, twoFactorStore))
+	mux.Handle("/api/login/2fa", handler.NewTwoFactorLoginHandler(tokenStore, repo, twoFactorStore))
+	mux.Handle("/api/login/recovery", handler.NewRecoveryLoginHandler(tokenStore, repo, twoFactorStore))
 
 	// Admin-only endpoints
 	mux.Handle("/api/admin/credentials", auth.RequireAdmin(tokenStore, userRepo, handler.NewCredentialsHandler(authManager, tokenStore)))
@@ -196,6 +199,10 @@ func main() {
 	mux.Handle("/api/user/profile", auth.RequireToken(tokenStore, handler.NewProfileHandler(repo)))
 	mux.Handle("/api/user/settings", auth.RequireToken(tokenStore, handler.NewUserSettingsHandler(repo, tokenStore)))
 	mux.Handle("/api/user/config", auth.RequireToken(tokenStore, handler.NewUserConfigHandler(repo)))
+	mux.Handle("/api/user/2fa/status", auth.RequireToken(tokenStore, handler.NewTwoFactorStatusHandler(repo)))
+	mux.Handle("/api/user/2fa/setup", auth.RequireToken(tokenStore, handler.NewTwoFactorSetupHandler(authManager, repo)))
+	mux.Handle("/api/user/2fa/verify-setup", auth.RequireToken(tokenStore, handler.NewTwoFactorVerifySetupHandler(repo)))
+	mux.Handle("/api/user/2fa/disable", auth.RequireToken(tokenStore, handler.NewTwoFactorDisableHandler(authManager, repo)))
 	mux.Handle("/api/user/token", auth.RequireToken(tokenStore, handler.NewUserTokenHandler(repo)))
 	mux.Handle("/api/user/external-subscriptions", auth.RequireToken(tokenStore, handler.NewExternalSubscriptionsHandler(repo)))
 	mux.Handle("/api/user/external-subscriptions/nodes", auth.RequireToken(tokenStore, handler.NewExternalSubscriptionNodesHandler(repo)))

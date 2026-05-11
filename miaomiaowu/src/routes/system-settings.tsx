@@ -58,6 +58,7 @@ interface UserConfig {
   sub_info_traffic_prefix: string
   enable_sub_traffic_header: boolean
   enable_override_scripts: boolean
+  enable_two_factor: boolean
 }
 
 export const Route = createFileRoute('/system-settings')({
@@ -93,6 +94,7 @@ function SystemSettingsPage() {
   const [subInfoTrafficPrefix, setSubInfoTrafficPrefix] = useState('⌛剩余流量')
   const [enableSubTrafficHeader, setEnableSubTrafficHeader] = useState(true)
   const [enableOverrideScripts, setEnableOverrideScripts] = useState(false)
+  const [enableTwoFactor, setEnableTwoFactor] = useState(false)
 
   // Notification config state
   const [notifyConfig, setNotifyConfig] = useState<NotifyConfig>({
@@ -194,6 +196,7 @@ function SystemSettingsPage() {
       setSubInfoTrafficPrefix(userConfig.sub_info_traffic_prefix || '⌛剩余流量')
       setEnableSubTrafficHeader(userConfig.enable_sub_traffic_header !== false)
       setEnableOverrideScripts(userConfig.enable_override_scripts || false)
+      setEnableTwoFactor(userConfig.enable_two_factor || false)
     }
   }, [userConfig])
 
@@ -227,6 +230,7 @@ function SystemSettingsPage() {
       setSubInfoTrafficPrefix(variables.sub_info_traffic_prefix)
       setEnableSubTrafficHeader(variables.enable_sub_traffic_header)
       setEnableOverrideScripts(variables.enable_override_scripts)
+      setEnableTwoFactor(variables.enable_two_factor)
       toast.success('设置已更新')
     },
     onError: (error) => {
@@ -258,6 +262,7 @@ function SystemSettingsPage() {
       sub_info_traffic_prefix: subInfoTrafficPrefix,
       enable_sub_traffic_header: enableSubTrafficHeader,
       enable_override_scripts: enableOverrideScripts,
+      enable_two_factor: enableTwoFactor,
       ...updates,
     })
   }
@@ -627,6 +632,34 @@ function SystemSettingsPage() {
                     id='enable-override-scripts'
                     checked={enableOverrideScripts}
                     onCheckedChange={(checked) => updateConfig({ enable_override_scripts: checked })}
+                    disabled={loadingConfig || updateConfigMutation.isPending}
+                  />
+                </div>
+
+                {/* 两步验证 */}
+                <div className='flex items-center justify-between rounded-lg border p-3'>
+                  <div className='flex items-center gap-2'>
+                    <Label htmlFor='enable-two-factor' className='cursor-pointer'>
+                      两步验证 (2FA)
+                    </Label>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <CircleHelp className='h-4 w-4 text-muted-foreground cursor-help' />
+                      </TooltipTrigger>
+                      <TooltipContent side='top' className='max-w-xs'>
+                        <p>开启后，用户可在个人设置中启用 TOTP 两步验证，登录时需要输入验证器应用中的验证码。</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                  <Switch
+                    id='enable-two-factor'
+                    checked={enableTwoFactor}
+                    onCheckedChange={(checked) => {
+                      updateConfig({ enable_two_factor: checked })
+                      if (checked) {
+                        toast.info('请前往右上角头像 → 个人设置中设置两步验证')
+                      }
+                    }}
                     disabled={loadingConfig || updateConfigMutation.isPending}
                   />
                 </div>

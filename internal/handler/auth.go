@@ -3,14 +3,12 @@ package handler
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
 	"miaomiaowu/internal/auth"
 	"miaomiaowu/internal/logger"
-	"miaomiaowu/internal/notify"
 	"miaomiaowu/internal/storage"
 )
 
@@ -59,7 +57,7 @@ func GetClientIP(r *http.Request) string {
 	return ip
 }
 
-func NewLoginHandler(manager *auth.Manager, tokens *auth.TokenStore, repo *storage.TrafficRepository, rateLimiter *LoginRateLimiter) http.Handler {
+func NewLoginHandler(manager *auth.Manager, tokens *auth.TokenStore, repo *storage.TrafficRepository, rateLimiter *LoginRateLimiter, twoFactorStore *auth.TwoFactorPendingStore) http.Handler {
 	if manager == nil || tokens == nil {
 		panic("login handler requires manager and token store")
 	}
@@ -122,6 +120,21 @@ func NewLoginHandler(manager *auth.Manager, tokens *auth.TokenStore, repo *stora
 			return
 		}
 
+		if user.TOTPEnabled && twoFactorStore != nil {
+			tfToken, err := twoFactorStore.Issue(username, payload.RememberMe)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"requires_2fa":     true,
+				"two_factor_token": tfToken,
+			})
+			return
+		}
+
 		if repo != nil {
 			if _, err := repo.GetOrCreateUserToken(r.Context(), username); err != nil {
 				writeError(w, http.StatusInternalServerError, err)
@@ -129,55 +142,7 @@ func NewLoginHandler(manager *auth.Manager, tokens *auth.TokenStore, repo *stora
 			}
 		}
 
-		// Determine token TTL based on remember_me flag
-		var ttl time.Duration
-		if payload.RememberMe {
-			ttl = 30 * 24 * time.Hour // 1 month
-		} else {
-			ttl = 24 * time.Hour // 1 day (default)
-		}
-
-		token, expiry, err := tokens.IssueWithTTL(username, ttl)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err)
-			return
-		}
-
-		// Persist session to database if repo is available
-		if repo != nil {
-			if err := repo.CreateSession(r.Context(), token, username, expiry); err != nil {
-				logger.Warn("[认证] 会话持久化失败", "username", username, "error", err)
-				// Don't fail the login, just log the error
-			}
-		}
-
-		// 记录登录成功
-		logger.Info("🔐 [LOGIN_OK] 登录成功",
-			"username", username,
-			"client_ip", clientIP,
-			"remember_me", payload.RememberMe,
-			"expires_at", expiry.Format("2006-01-02 15:04:05"))
-
-		if n := GetNotifier(); n != nil {
-			go n.Send(r.Context(), notify.Event{
-				Type:    notify.EventLogin,
-				Title:   "登录通知",
-				Message: fmt.Sprintf("用户 `%s` 登录成功\nIP: `%s`", username, clientIP),
-			})
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(loginResponse{
-			Token:     token,
-			ExpiresAt: expiry,
-			Username:  user.Username,
-			Email:     user.Email,
-			Nickname:  user.Nickname,
-			Avatar:    user.AvatarURL,
-			Role:      user.Role,
-			IsAdmin:   user.Role == storage.RoleAdmin,
-		})
+		issueLoginSession(w, r, tokens, repo, user, payload.RememberMe)
 	})
 }
 
