@@ -530,6 +530,16 @@ const tlsParser = (proxy: Proxy, parsedProxy: ParsedProxy): void => {
       enabled: true,
       fingerprint: proxy['client-fingerprint'],
     }
+  // ech-opts
+  if (proxy['_ech'] && typeof proxy['_ech'] === 'object') {
+    ;(parsedProxy.tls as any).ech = proxy['_ech']
+  } else if (proxy['ech-opts'] && typeof proxy['ech-opts'] === 'object') {
+    const ech: any = (parsedProxy.tls as any).ech || {}
+    ech.enabled = proxy['ech-opts'].enable
+    if (proxy['ech-opts']['query-server-name']) ech.query_server_name = proxy['ech-opts']['query-server-name']
+    if (proxy['ech-opts']['config-path']) ech.config_path = proxy['ech-opts']['config-path']
+    ;(parsedProxy.tls as any).ech = ech
+  }
   if (proxy['_fragment']) parsedProxy.tls!.fragment = !!proxy['_fragment']
   if (proxy['_fragment_fallback_delay'])
     parsedProxy.tls!.fragment_fallback_delay = proxy['_fragment_fallback_delay']
@@ -623,7 +633,12 @@ const socks5Parser = (proxy: Proxy = {} as Proxy): ParsedProxy => {
   if (proxy.username) parsedProxy.username = proxy.username
   if (proxy.password) parsedProxy.password = proxy.password
   if (proxy.uot) parsedProxy.udp_over_tcp = true
-  if (proxy['udp-over-tcp']) parsedProxy.udp_over_tcp = true
+  if (proxy['udp-over-tcp']) {
+    parsedProxy.udp_over_tcp = {
+      enabled: true,
+      version: !proxy['udp-over-tcp-version'] || proxy['udp-over-tcp-version'] === 1 ? 1 : 2,
+    }
+  }
   if (proxy['fast-open']) parsedProxy.udp_fragment = true
   networkParser(proxy, parsedProxy)
   tfoParser(proxy, parsedProxy)
@@ -999,12 +1014,20 @@ const anytlsParser = (proxy: Proxy = {} as Proxy): ParsedProxy => {
   return parsedProxy
 }
 
+const parseReserved = (reserved: any): string | number[] | undefined => {
+  if (typeof reserved === 'string') return reserved
+  if (Array.isArray(reserved) && reserved.length > 0) return reserved.map((r: any) => Number(r))
+  return undefined
+}
+
 const wireguardParser = (proxy: Proxy = {} as Proxy): ParsedProxy => {
-  const local_address = ['ip', 'ipv6']
-    .map((i) => proxy[i])
+  const address = ['ip', 'ipv6']
     .map((i) => {
-      if (isIPv4(i as string)) return `${i}/32`
-      if (isIPv6(i as string)) return `${i}/128`
+      const val = proxy[i] as string
+      if (!val) return undefined
+      if (val.includes('/')) return val
+      if (isIPv4(val)) return `${val}/32`
+      if (isIPv6(val)) return `${val}/128`
       return undefined
     })
     .filter((i) => i) as string[]
@@ -1013,47 +1036,66 @@ const wireguardParser = (proxy: Proxy = {} as Proxy): ParsedProxy => {
     type: 'wireguard',
     server: proxy.server,
     server_port: parseInt(`${proxy.port}`, 10),
-    local_address,
     private_key: proxy['private-key'],
-    peer_public_key: proxy['public-key'],
-    pre_shared_key: proxy['pre-shared-key'],
-    reserved: [],
-  }
+  } as any
+  ;(parsedProxy as any).address = address
+  ;(parsedProxy as any).peer_public_key = proxy['public-key']
+  ;(parsedProxy as any).pre_shared_key = proxy['pre-shared-key']
   if (parsedProxy.server_port! < 0 || parsedProxy.server_port! > 65535) throw 'invalid port'
   if (proxy['fast-open']) parsedProxy.udp_fragment = true
-  if (typeof proxy.reserved === 'string') {
-    parsedProxy.reserved = proxy.reserved
-  } else if (Array.isArray(proxy.reserved)) {
-    for (const r of proxy.reserved) (parsedProxy.reserved as number[]).push(r)
-  } else {
-    delete parsedProxy.reserved
+  if (proxy.system) (parsedProxy as any).system = true
+  if (proxy.mtu) (parsedProxy as any).mtu = parseInt(`${proxy.mtu}`, 10)
+  if (proxy.workers) (parsedProxy as any).workers = parseInt(`${proxy.workers}`, 10)
+  if (proxy['udp-timeout']) (parsedProxy as any).udp_timeout = proxy['udp-timeout']
+
+  const topReserved = parseReserved(proxy.reserved)
+  if (topReserved) (parsedProxy as any).reserved = topReserved
+
+  let peersInput = proxy.peers as any[]
+  if (!Array.isArray(peersInput) || peersInput.length === 0) {
+    peersInput = [{}]
   }
-  if (proxy.peers && proxy.peers.length > 0) {
-    parsedProxy.peers = []
-    for (const p of proxy.peers) {
-      const peer: NonNullable<ParsedProxy['peers']>[0] = {
-        server: p.server,
-        server_port: parseInt(`${p.port}`, 10),
-        public_key: p['public-key'],
-        allowed_ips: p['allowed-ips'] || p.allowed_ips,
-        reserved: [],
-      }
-      if (typeof p.reserved === 'string') {
-        ;(peer.reserved as number[]).push(p.reserved as any)
-      } else if (Array.isArray(p.reserved)) {
-        for (const r of p.reserved) (peer.reserved as number[]).push(r)
-      } else {
-        delete peer.reserved
-      }
-      if (p['pre-shared-key']) peer.pre_shared_key = p['pre-shared-key']
-      parsedProxy.peers.push(peer)
+
+  const peers: any[] = []
+  for (const p of peersInput) {
+    const peerServer = p.server || proxy.server
+    const peerPort = parseInt(`${p.port || proxy.port}`, 10)
+    const publicKey = p['public-key'] || p['public_key'] || proxy['public-key']
+    const preSharedKey = p['pre-shared-key'] || p['pre_shared_key'] || proxy['pre-shared-key']
+    const allowedIps = p['allowed-ips'] || p.allowed_ips || [
+      '0.0.0.0/0',
+      ...(proxy.ipv6 ? ['::/0'] : []),
+    ]
+
+    const peer: any = {
+      address: peerServer,
+      port: peerPort,
+      public_key: publicKey,
+      allowed_ips: allowedIps,
     }
+    if (preSharedKey) peer.pre_shared_key = preSharedKey
+    if (p['persistent-keepalive-interval'])
+      peer.persistent_keepalive_interval = parseInt(`${p['persistent-keepalive-interval']}`, 10)
+
+    const peerReserved = parseReserved(p.reserved) ?? topReserved
+    if (peerReserved) peer.reserved = peerReserved
+
+    peers.push(peer)
   }
+  ;(parsedProxy as any).peers = peers
+
   networkParser(proxy, parsedProxy)
   tfoParser(proxy, parsedProxy)
   detourParser(proxy, parsedProxy)
   smuxParser(proxy.smux, parsedProxy)
   ipVersionParser(proxy, parsedProxy)
+
+  delete parsedProxy.server
+  delete parsedProxy.server_port
+  delete (parsedProxy as any).pre_shared_key
+  delete (parsedProxy as any).peer_public_key
+  delete (parsedProxy as any).reserved
+
   return parsedProxy
 }
 
@@ -1069,6 +1111,8 @@ export default function singbox_Producer(): Producer {
       .produce(proxies as any, 'internal', { 'include-unsupported-proxy': true }) as any[])
       .map((proxy: any) => {
         try {
+          if (['xhttp'].includes(proxy.network))
+            throw new Error(`Platform sing-box does not support network: ${proxy.network}`)
           switch (proxy.type) {
             case 'ssh':
               list.push(sshParser(proxy))
@@ -1113,7 +1157,9 @@ export default function singbox_Producer(): Producer {
               }
               break
             case 'vless':
-              if (!proxy.flow || ['xtls-rprx-vision'].includes(proxy.flow)) {
+              if (proxy.encryption && proxy.encryption !== 'none') {
+                throw new Error(`VLESS encryption is not supported`)
+              } else if (!proxy.flow || ['xtls-rprx-vision'].includes(proxy.flow)) {
                 list.push(vlessParser(proxy))
               } else {
                 throw new Error(
@@ -1158,7 +1204,21 @@ export default function singbox_Producer(): Producer {
         }
       })
 
-    return type === 'internal' ? list : JSON.stringify({ outbounds: list }, null, 2)
+    if (type === 'internal') return list
+
+    const categorized = list.reduce(
+      (result: { outbounds: ParsedProxy[]; endpoints: ParsedProxy[] }, item) => {
+        if (['wireguard', 'tailscale'].includes(item.type)) {
+          result.endpoints.push(item)
+        } else {
+          result.outbounds.push(item)
+        }
+        return result
+      },
+      { outbounds: [], endpoints: [] }
+    )
+
+    return JSON.stringify(categorized, null, 2)
   }
   return { type, produce }
 }

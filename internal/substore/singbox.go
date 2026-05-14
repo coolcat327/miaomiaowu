@@ -66,6 +66,10 @@ func (p *SingboxProducer) Produce(proxies []Proxy, outputType string, opts *Prod
 		var parsed map[string]interface{}
 		var err error
 
+		if GetString(proxy, "network") == "xhttp" {
+			continue
+		}
+
 		switch proxyType {
 		case "ssh":
 			parsed, err = p.sshParser(proxy)
@@ -104,11 +108,16 @@ func (p *SingboxProducer) Produce(proxies []Proxy, outputType string, opts *Prod
 				err = fmt.Errorf("platform sing-box does not support proxy type: %s with network %s", proxyType, network)
 			}
 		case "vless":
-			flow := GetString(proxy, "flow")
-			if flow == "" || flow == "xtls-rprx-vision" {
-				parsed, err = p.vlessParser(proxy)
+			encryption := GetString(proxy, "encryption")
+			if encryption != "" && encryption != "none" {
+				err = fmt.Errorf("VLESS encryption is not supported")
 			} else {
-				err = fmt.Errorf("platform sing-box does not support proxy type: %s with flow %s", proxyType, flow)
+				flow := GetString(proxy, "flow")
+				if flow == "" || flow == "xtls-rprx-vision" {
+					parsed, err = p.vlessParser(proxy)
+				} else {
+					err = fmt.Errorf("platform sing-box does not support proxy type: %s with flow %s", proxyType, flow)
+				}
 			}
 		case "trojan":
 			if GetString(proxy, "flow") == "" {
@@ -151,9 +160,20 @@ func (p *SingboxProducer) Produce(proxies []Proxy, outputType string, opts *Prod
 		return list, nil
 	}
 
-	// Return JSON format
+	outbounds := make([]map[string]interface{}, 0)
+	endpoints := make([]map[string]interface{}, 0)
+	for _, item := range list {
+		itemType, _ := item["type"].(string)
+		if itemType == "wireguard" || itemType == "tailscale" {
+			endpoints = append(endpoints, item)
+		} else {
+			outbounds = append(outbounds, item)
+		}
+	}
+
 	result := map[string]interface{}{
-		"outbounds": list,
+		"outbounds": outbounds,
+		"endpoints": endpoints,
 	}
 
 	jsonBytes, err := json.MarshalIndent(result, "", "  ")
@@ -176,6 +196,19 @@ func (p *SingboxProducer) ipVersionParser(proxy Proxy, parsed map[string]interfa
 			"server":   dnsServer,
 			"strategy": strategy,
 		}
+	}
+}
+
+func (p *SingboxProducer) domainResolverParser(proxy Proxy, parsed map[string]interface{}) {
+	if dr := GetMap(proxy, "_domain_resolver"); dr != nil {
+		existing, _ := parsed["domain_resolver"].(map[string]interface{})
+		if existing == nil {
+			existing = make(map[string]interface{})
+		}
+		for k, v := range dr {
+			existing[k] = v
+		}
+		parsed["domain_resolver"] = existing
 	}
 }
 
@@ -233,6 +266,17 @@ var singboxConsumedKeys = map[string]bool{
 	"headers": true, "path": true,
 	"version": true, "token": true,
 	"idle-timeout": true, "padding": true,
+	"encryption": true,
+	"udp-over-tcp": true, "udp-over-tcp-version": true,
+	"insecure": true, "peer": true, "disable-sni": true,
+	"ech-opts": true, "server-fingerprint": true,
+	"udp-over-stream": true, "udp-timeout": true,
+	"insecure-concurrency": true, "extra-headers": true,
+	"idle-session-check-interval": true, "idle-session-timeout": true, "min-idle-session": true,
+	"system": true, "workers": true,
+	"ws-headers": true, "ws-path": true, "ws-host": true,
+	"http-host": true, "http-path": true, "h2-host": true, "h2-path": true,
+	"obfs-host": true,
 }
 
 func (p *SingboxProducer) passthroughExtraFields(proxy Proxy, parsed map[string]interface{}) {
@@ -684,6 +728,24 @@ func (p *SingboxProducer) tlsParser(proxy Proxy, parsed map[string]interface{}) 
 		}
 	}
 
+	// ech-opts
+	if echMap := GetMap(proxy, "_ech"); echMap != nil {
+		tls["ech"] = echMap
+	} else if echOpts := GetMap(proxy, "ech-opts"); echOpts != nil {
+		ech := map[string]interface{}{}
+		if _, exists := tls["ech"]; exists {
+			ech = tls["ech"].(map[string]interface{})
+		}
+		ech["enabled"] = GetBool(echOpts, "enable")
+		if queryServerName := GetString(echOpts, "query-server-name"); queryServerName != "" {
+			ech["query_server_name"] = queryServerName
+		}
+		if configPath := GetString(echOpts, "config-path"); configPath != "" {
+			ech["config_path"] = configPath
+		}
+		tls["ech"] = ech
+	}
+
 	if GetBool(proxy, "_fragment") {
 		tls["fragment"] = true
 	}
@@ -775,6 +837,7 @@ func (p *SingboxProducer) sshParser(proxy Proxy) (map[string]interface{}, error)
 	p.tfoParser(proxy, parsed)
 	p.detourParser(proxy, parsed)
 	p.ipVersionParser(proxy, parsed)
+	p.domainResolverParser(proxy, parsed)
 
 	return parsed, nil
 }
@@ -822,6 +885,7 @@ func (p *SingboxProducer) httpParser(proxy Proxy) (map[string]interface{}, error
 	p.detourParser(proxy, parsed)
 	p.tlsParser(proxy, parsed)
 	p.ipVersionParser(proxy, parsed)
+	p.domainResolverParser(proxy, parsed)
 
 	return parsed, nil
 }
@@ -847,8 +911,20 @@ func (p *SingboxProducer) socks5Parser(proxy Proxy) (map[string]interface{}, err
 		parsed["password"] = password
 	}
 
-	if GetBool(proxy, "uot") || GetBool(proxy, "udp-over-tcp") {
+	if GetBool(proxy, "uot") {
 		parsed["udp_over_tcp"] = true
+	}
+	if GetBool(proxy, "udp-over-tcp") {
+		version := GetInt(proxy, "udp-over-tcp-version")
+		if version == 0 || version == 1 {
+			version = 1
+		} else {
+			version = 2
+		}
+		parsed["udp_over_tcp"] = map[string]interface{}{
+			"enabled": true,
+			"version": version,
+		}
 	}
 
 	if GetBool(proxy, "fast-open") {
@@ -859,6 +935,7 @@ func (p *SingboxProducer) socks5Parser(proxy Proxy) (map[string]interface{}, err
 	p.tfoParser(proxy, parsed)
 	p.detourParser(proxy, parsed)
 	p.ipVersionParser(proxy, parsed)
+	p.domainResolverParser(proxy, parsed)
 
 	return parsed, nil
 }
@@ -926,6 +1003,7 @@ func (p *SingboxProducer) shadowTLSParser(proxy Proxy) (map[string]interface{}, 
 	p.detourParser(proxy, stPart)
 	p.smuxParser(proxy, ssPart)
 	p.ipVersionParser(proxy, stPart)
+	p.domainResolverParser(proxy, stPart)
 
 	return ssPart, stPart, nil
 }
@@ -1073,6 +1151,7 @@ func (p *SingboxProducer) ssrParser(proxy Proxy) (map[string]interface{}, error)
 	p.detourParser(proxy, parsed)
 	p.smuxParser(proxy, parsed)
 	p.ipVersionParser(proxy, parsed)
+	p.domainResolverParser(proxy, parsed)
 
 	return parsed, nil
 }
@@ -1137,6 +1216,7 @@ func (p *SingboxProducer) vmessParser(proxy Proxy) (map[string]interface{}, erro
 	p.tlsParser(proxy, parsed)
 	p.smuxParser(proxy, parsed)
 	p.ipVersionParser(proxy, parsed)
+	p.domainResolverParser(proxy, parsed)
 
 	return parsed, nil
 }
@@ -1190,6 +1270,7 @@ func (p *SingboxProducer) vlessParser(proxy Proxy) (map[string]interface{}, erro
 	p.smuxParser(proxy, parsed)
 	p.tlsParser(proxy, parsed)
 	p.ipVersionParser(proxy, parsed)
+	p.domainResolverParser(proxy, parsed)
 
 	return parsed, nil
 }
@@ -1231,6 +1312,7 @@ func (p *SingboxProducer) trojanParser(proxy Proxy) (map[string]interface{}, err
 	p.tlsParser(proxy, parsed)
 	p.smuxParser(proxy, parsed)
 	p.ipVersionParser(proxy, parsed)
+	p.domainResolverParser(proxy, parsed)
 
 	return parsed, nil
 }
@@ -1345,6 +1427,7 @@ func (p *SingboxProducer) hysteriaParser(proxy Proxy) (map[string]interface{}, e
 	p.tfoParser(proxy, parsed)
 	p.smuxParser(proxy, parsed)
 	p.ipVersionParser(proxy, parsed)
+	p.domainResolverParser(proxy, parsed)
 
 	return parsed, nil
 }
@@ -1419,6 +1502,7 @@ func (p *SingboxProducer) hysteria2Parser(proxy Proxy) (map[string]interface{}, 
 	p.detourParser(proxy, parsed)
 	p.smuxParser(proxy, parsed)
 	p.ipVersionParser(proxy, parsed)
+	p.domainResolverParser(proxy, parsed)
 
 	return parsed, nil
 }
@@ -1473,6 +1557,7 @@ func (p *SingboxProducer) tuic5Parser(proxy Proxy) (map[string]interface{}, erro
 	p.tlsParser(proxy, parsed)
 	p.smuxParser(proxy, parsed)
 	p.ipVersionParser(proxy, parsed)
+	p.domainResolverParser(proxy, parsed)
 
 	return parsed, nil
 }
@@ -1518,6 +1603,7 @@ func (p *SingboxProducer) anytlsParser(proxy Proxy) (map[string]interface{}, err
 	p.detourParser(proxy, parsed)
 	p.tlsParser(proxy, parsed)
 	p.ipVersionParser(proxy, parsed)
+	p.domainResolverParser(proxy, parsed)
 
 	return parsed, nil
 }
@@ -1528,30 +1614,69 @@ func (p *SingboxProducer) naiveParser(proxy Proxy) (map[string]interface{}, erro
 		return nil, fmt.Errorf("invalid port")
 	}
 
-	sni := GetString(proxy, "sni")
-	if sni == "" {
-		sni = GetString(proxy, "server")
-	}
-
 	parsed := map[string]interface{}{
 		"tag":         GetString(proxy, "name"),
 		"type":        "naive",
 		"server":      GetString(proxy, "server"),
 		"server_port": port,
-		"username":    GetString(proxy, "username"),
-		"password":    GetString(proxy, "password"),
 		"tls": map[string]interface{}{
 			"enabled":     true,
-			"server_name": sni,
+			"server_name": GetString(proxy, "server"),
+			"insecure":    false,
 		},
 	}
 
-	if GetBool(proxy, "udp-over-tcp") {
+	if username := GetString(proxy, "username"); username != "" {
+		parsed["username"] = username
+	}
+	if password := GetString(proxy, "password"); password != "" {
+		parsed["password"] = password
+	}
+
+	if GetBool(proxy, "uot") {
 		parsed["udp_over_tcp"] = true
+	}
+	if GetBool(proxy, "udp-over-tcp") {
+		version := GetInt(proxy, "udp-over-tcp-version")
+		if version == 0 || version == 1 {
+			version = 1
+		} else {
+			version = 2
+		}
+		parsed["udp_over_tcp"] = map[string]interface{}{
+			"enabled": true,
+			"version": version,
+		}
+	}
+
+	if insecureConcurrency := GetInt(proxy, "insecure-concurrency"); insecureConcurrency > 0 {
+		parsed["insecure_concurrency"] = insecureConcurrency
 	}
 
 	if extraHeaders := GetMap(proxy, "extra-headers"); extraHeaders != nil {
 		parsed["extra_headers"] = extraHeaders
+	}
+
+	if GetBool(proxy, "quic") {
+		parsed["quic"] = true
+	}
+	if qcc := GetString(proxy, "quic-congestion-control"); qcc != "" {
+		parsed["quic_congestion_control"] = qcc
+	}
+
+	if GetBool(proxy, "fast-open") {
+		parsed["udp_fragment"] = true
+	}
+
+	p.tfoParser(proxy, parsed)
+	p.detourParser(proxy, parsed)
+	p.tlsParser(proxy, parsed)
+	p.smuxParser(proxy, parsed)
+	p.ipVersionParser(proxy, parsed)
+
+	// naive doesn't support tls.insecure
+	if tls, ok := parsed["tls"].(map[string]interface{}); ok {
+		delete(tls, "insecure")
 	}
 
 	return parsed, nil
@@ -1563,16 +1688,19 @@ func (p *SingboxProducer) wireguardParser(proxy Proxy) (map[string]interface{}, 
 		return nil, fmt.Errorf("invalid port")
 	}
 
-	// Build local_address from ip and ipv6
-	localAddress := make([]string, 0)
+	address := make([]string, 0)
 	if ip := GetString(proxy, "ip"); ip != "" {
-		if IsIPv4(ip) {
-			localAddress = append(localAddress, fmt.Sprintf("%s/32", ip))
+		if strings.Contains(ip, "/") {
+			address = append(address, ip)
+		} else if IsIPv4(ip) {
+			address = append(address, fmt.Sprintf("%s/32", ip))
 		}
 	}
 	if ipv6 := GetString(proxy, "ipv6"); ipv6 != "" {
-		if IsIPv6(ipv6) {
-			localAddress = append(localAddress, fmt.Sprintf("%s/128", ipv6))
+		if strings.Contains(ipv6, "/") {
+			address = append(address, ipv6)
+		} else if IsIPv6(ipv6) {
+			address = append(address, fmt.Sprintf("%s/128", ipv6))
 		}
 	}
 
@@ -1581,13 +1709,23 @@ func (p *SingboxProducer) wireguardParser(proxy Proxy) (map[string]interface{}, 
 		"type":            "wireguard",
 		"server":          GetString(proxy, "server"),
 		"server_port":     port,
-		"local_address":   localAddress,
+		"address":         address,
 		"private_key":     GetString(proxy, "private-key"),
 		"peer_public_key": GetString(proxy, "public-key"),
+		"pre_shared_key":  GetString(proxy, "pre-shared-key"),
 	}
 
-	if preSharedKey := GetString(proxy, "pre-shared-key"); preSharedKey != "" {
-		parsed["pre_shared_key"] = preSharedKey
+	if GetBool(proxy, "system") {
+		parsed["system"] = true
+	}
+	if mtu := GetInt(proxy, "mtu"); mtu > 0 {
+		parsed["mtu"] = mtu
+	}
+	if udpTimeout := GetString(proxy, "udp-timeout"); udpTimeout != "" {
+		parsed["udp_timeout"] = udpTimeout
+	}
+	if workers := GetInt(proxy, "workers"); workers > 0 {
+		parsed["workers"] = workers
 	}
 
 	if GetBool(proxy, "fast-open") {
@@ -1595,74 +1733,85 @@ func (p *SingboxProducer) wireguardParser(proxy Proxy) (map[string]interface{}, 
 	}
 
 	// Handle reserved
-	if reserved := proxy["reserved"]; reserved != nil {
-		if str, ok := reserved.(string); ok {
-			parsed["reserved"] = str
-		} else if slice, ok := reserved.([]interface{}); ok {
-			nums := make([]int, 0, len(slice))
-			for _, v := range slice {
-				if num, ok := v.(int); ok {
-					nums = append(nums, num)
-				} else if num, ok := v.(float64); ok {
-					nums = append(nums, int(num))
-				}
-			}
-			if len(nums) > 0 {
-				parsed["reserved"] = nums
-			}
-		}
+	parsedReserved := parseReserved(proxy["reserved"])
+	if parsedReserved != nil {
+		parsed["reserved"] = parsedReserved
 	}
 
-	// Handle peers
-	if peersInterface := proxy["peers"]; peersInterface != nil {
-		if peersSlice, ok := peersInterface.([]interface{}); ok && len(peersSlice) > 0 {
-			peers := make([]map[string]interface{}, 0, len(peersSlice))
-			for _, peerInterface := range peersSlice {
-				if peerMap, ok := peerInterface.(map[string]interface{}); ok {
-					peer := map[string]interface{}{
-						"server":      GetString(peerMap, "server"),
-						"server_port": GetInt(peerMap, "port"),
-						"public_key":  GetString(peerMap, "public-key"),
-					}
+	// Ensure peers exist
+	peersSlice, _ := proxy["peers"].([]interface{})
+	if len(peersSlice) == 0 {
+		peersSlice = []interface{}{map[string]interface{}{}}
+	}
 
-					// Handle allowed_ips
-					if allowedIPs := GetStringSlice(peerMap, "allowed-ips"); allowedIPs != nil {
-						peer["allowed_ips"] = allowedIPs
-					} else if allowedIPs := GetStringSlice(peerMap, "allowed_ips"); allowedIPs != nil {
-						peer["allowed_ips"] = allowedIPs
-					}
+	peers := make([]map[string]interface{}, 0, len(peersSlice))
+	for _, peerInterface := range peersSlice {
+		peerMap, ok := peerInterface.(map[string]interface{})
+		if !ok {
+			continue
+		}
 
-					// Handle reserved
-					if reserved := peerMap["reserved"]; reserved != nil {
-						if str, ok := reserved.(string); ok {
-							peer["reserved"] = str
-						} else if slice, ok := reserved.([]interface{}); ok {
-							nums := make([]int, 0, len(slice))
-							for _, v := range slice {
-								if num, ok := v.(int); ok {
-									nums = append(nums, num)
-								} else if num, ok := v.(float64); ok {
-									nums = append(nums, int(num))
-								}
-							}
-							if len(nums) > 0 {
-								peer["reserved"] = nums
-							}
-						}
-					}
+		peerServer := GetString(peerMap, "server")
+		peerPort := GetInt(peerMap, "port")
+		if peerServer == "" {
+			peerServer = GetString(proxy, "server")
+		}
+		if peerPort == 0 {
+			peerPort = port
+		}
 
-					if preSharedKey := GetString(peerMap, "pre-shared-key"); preSharedKey != "" {
-						peer["pre_shared_key"] = preSharedKey
-					}
+		publicKey := GetString(peerMap, "public-key")
+		if publicKey == "" {
+			publicKey = GetString(peerMap, "public_key")
+		}
+		if publicKey == "" {
+			publicKey = GetString(proxy, "public-key")
+		}
 
-					peers = append(peers, peer)
-				}
-			}
-			if len(peers) > 0 {
-				parsed["peers"] = peers
+		preSharedKey := GetString(peerMap, "pre-shared-key")
+		if preSharedKey == "" {
+			preSharedKey = GetString(peerMap, "pre_shared_key")
+		}
+		if preSharedKey == "" {
+			preSharedKey = GetString(proxy, "pre-shared-key")
+		}
+
+		allowedIPs := GetStringSlice(peerMap, "allowed-ips")
+		if allowedIPs == nil {
+			allowedIPs = GetStringSlice(peerMap, "allowed_ips")
+		}
+		if allowedIPs == nil {
+			allowedIPs = []string{"0.0.0.0/0"}
+			if GetString(proxy, "ipv6") != "" {
+				allowedIPs = append(allowedIPs, "::/0")
 			}
 		}
+
+		peer := map[string]interface{}{
+			"address":    peerServer,
+			"port":       peerPort,
+			"public_key": publicKey,
+			"allowed_ips": allowedIPs,
+		}
+		if preSharedKey != "" {
+			peer["pre_shared_key"] = preSharedKey
+		}
+
+		if keepalive := GetInt(peerMap, "persistent-keepalive-interval"); keepalive > 0 {
+			peer["persistent_keepalive_interval"] = keepalive
+		}
+
+		peerReserved := parseReserved(peerMap["reserved"])
+		if peerReserved == nil {
+			peerReserved = parsedReserved
+		}
+		if peerReserved != nil {
+			peer["reserved"] = peerReserved
+		}
+
+		peers = append(peers, peer)
 	}
+	parsed["peers"] = peers
 
 	p.networkParser(proxy, parsed)
 	p.tfoParser(proxy, parsed)
@@ -1670,5 +1819,35 @@ func (p *SingboxProducer) wireguardParser(proxy Proxy) (map[string]interface{}, 
 	p.smuxParser(proxy, parsed)
 	p.ipVersionParser(proxy, parsed)
 
+	delete(parsed, "server")
+	delete(parsed, "server_port")
+	delete(parsed, "pre_shared_key")
+	delete(parsed, "peer_public_key")
+	delete(parsed, "reserved")
+
 	return parsed, nil
+}
+
+func parseReserved(reserved interface{}) interface{} {
+	if reserved == nil {
+		return nil
+	}
+	if str, ok := reserved.(string); ok {
+		return str
+	}
+	if slice, ok := reserved.([]interface{}); ok && len(slice) > 0 {
+		nums := make([]int, 0, len(slice))
+		for _, v := range slice {
+			switch n := v.(type) {
+			case int:
+				nums = append(nums, n)
+			case float64:
+				nums = append(nums, int(n))
+			}
+		}
+		if len(nums) > 0 {
+			return nums
+		}
+	}
+	return nil
 }
