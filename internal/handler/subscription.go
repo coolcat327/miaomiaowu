@@ -708,9 +708,9 @@ func (h *SubscriptionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 
 	// 格式转换
 	stepStart = time.Now()
-	// 根��参数t的类型调用substore的转换代码
+	// 根据参数t的类型调用substore的转换代码
 	clientType := strings.TrimSpace(r.URL.Query().Get("t"))
-	// 默认浏览器打开时直接��入文本, 不再下载问卷
+	// 默认浏览器打开时直接输出文本, 不再下载文件
 	contentType := "text/yaml; charset=utf-8; charset=UTF-8"
 	ext := filepath.Ext(filename)
 	if ext == "" {

@@ -15,55 +15,55 @@ import (
 )
 
 type userConfigRequest struct {
-	ForceSyncExternal       bool    `json:"force_sync_external"`
-	MatchRule               string  `json:"match_rule"`
-	SyncScope               string  `json:"sync_scope"`
-	KeepNodeName            bool    `json:"keep_node_name"`
-	CacheExpireMinutes      int     `json:"cache_expire_minutes"`
-	SyncTraffic             bool    `json:"sync_traffic"`
-	EnableProbeBinding      bool    `json:"enable_probe_binding"`
-	CustomRulesEnabled      bool    `json:"custom_rules_enabled"`
-	EnableShortLink         bool    `json:"enable_short_link"`
-	TemplateVersion         string  `json:"template_version"`
-	EnableProxyProvider     bool    `json:"enable_proxy_provider"`
-	NodeOrder               []int64 `json:"node_order"`
-	NodeNameFilter          string  `json:"node_name_filter"`
-	ProxyGroupsSourceURL    string  `json:"proxy_groups_source_url"`
-	ClientCompatibilityMode bool    `json:"client_compatibility_mode"`
-	SilentMode              bool    `json:"silent_mode"`
-	SilentModeTimeout       int     `json:"silent_mode_timeout"`
-	EnableSubInfoNodes      bool    `json:"enable_sub_info_nodes"`
-	SubInfoExpirePrefix     string  `json:"sub_info_expire_prefix"`
-	SubInfoTrafficPrefix    string  `json:"sub_info_traffic_prefix"`
-	EnableSubTrafficHeader    bool   `json:"enable_sub_traffic_header"`
-	EnableOverrideScripts     bool   `json:"enable_override_scripts"`
-	SubscriptionOutputFormat  string `json:"subscription_output_format"`
+	ForceSyncExternal        bool    `json:"force_sync_external"`
+	MatchRule                string  `json:"match_rule"`
+	SyncScope                string  `json:"sync_scope"`
+	KeepNodeName             bool    `json:"keep_node_name"`
+	CacheExpireMinutes       int     `json:"cache_expire_minutes"`
+	SyncTraffic              bool    `json:"sync_traffic"`
+	EnableProbeBinding       bool    `json:"enable_probe_binding"`
+	CustomRulesEnabled       bool    `json:"custom_rules_enabled"`
+	EnableShortLink          bool    `json:"enable_short_link"`
+	TemplateVersion          string  `json:"template_version"`
+	EnableProxyProvider      bool    `json:"enable_proxy_provider"`
+	NodeOrder                []int64 `json:"node_order"`
+	NodeNameFilter           string  `json:"node_name_filter"`
+	ProxyGroupsSourceURL     string  `json:"proxy_groups_source_url"`
+	ClientCompatibilityMode  bool    `json:"client_compatibility_mode"`
+	SilentMode               bool    `json:"silent_mode"`
+	SilentModeTimeout        int     `json:"silent_mode_timeout"`
+	EnableSubInfoNodes       bool    `json:"enable_sub_info_nodes"`
+	SubInfoExpirePrefix      string  `json:"sub_info_expire_prefix"`
+	SubInfoTrafficPrefix     string  `json:"sub_info_traffic_prefix"`
+	EnableSubTrafficHeader   bool    `json:"enable_sub_traffic_header"`
+	EnableOverrideScripts    bool    `json:"enable_override_scripts"`
+	SubscriptionOutputFormat string  `json:"subscription_output_format"`
 }
 
 type userConfigResponse struct {
-	ForceSyncExternal       bool    `json:"force_sync_external"`
-	MatchRule               string  `json:"match_rule"`
-	SyncScope               string  `json:"sync_scope"`
-	KeepNodeName            bool    `json:"keep_node_name"`
-	CacheExpireMinutes      int     `json:"cache_expire_minutes"`
-	SyncTraffic             bool    `json:"sync_traffic"`
-	EnableProbeBinding      bool    `json:"enable_probe_binding"`
-	CustomRulesEnabled      bool    `json:"custom_rules_enabled"`
-	EnableShortLink         bool    `json:"enable_short_link"`
-	TemplateVersion         string  `json:"template_version"`
-	EnableProxyProvider     bool    `json:"enable_proxy_provider"`
-	NodeOrder               []int64 `json:"node_order"`
-	NodeNameFilter          string  `json:"node_name_filter"`
-	ProxyGroupsSourceURL    string  `json:"proxy_groups_source_url"`
-	ClientCompatibilityMode bool    `json:"client_compatibility_mode"`
-	SilentMode              bool    `json:"silent_mode"`
-	SilentModeTimeout       int     `json:"silent_mode_timeout"`
-	EnableSubInfoNodes      bool    `json:"enable_sub_info_nodes"`
-	SubInfoExpirePrefix     string  `json:"sub_info_expire_prefix"`
-	SubInfoTrafficPrefix    string  `json:"sub_info_traffic_prefix"`
-	EnableSubTrafficHeader    bool   `json:"enable_sub_traffic_header"`
-	EnableOverrideScripts     bool   `json:"enable_override_scripts"`
-	SubscriptionOutputFormat  string `json:"subscription_output_format"`
+	ForceSyncExternal        bool    `json:"force_sync_external"`
+	MatchRule                string  `json:"match_rule"`
+	SyncScope                string  `json:"sync_scope"`
+	KeepNodeName             bool    `json:"keep_node_name"`
+	CacheExpireMinutes       int     `json:"cache_expire_minutes"`
+	SyncTraffic              bool    `json:"sync_traffic"`
+	EnableProbeBinding       bool    `json:"enable_probe_binding"`
+	CustomRulesEnabled       bool    `json:"custom_rules_enabled"`
+	EnableShortLink          bool    `json:"enable_short_link"`
+	TemplateVersion          string  `json:"template_version"`
+	EnableProxyProvider      bool    `json:"enable_proxy_provider"`
+	NodeOrder                []int64 `json:"node_order"`
+	NodeNameFilter           string  `json:"node_name_filter"`
+	ProxyGroupsSourceURL     string  `json:"proxy_groups_source_url"`
+	ClientCompatibilityMode  bool    `json:"client_compatibility_mode"`
+	SilentMode               bool    `json:"silent_mode"`
+	SilentModeTimeout        int     `json:"silent_mode_timeout"`
+	EnableSubInfoNodes       bool    `json:"enable_sub_info_nodes"`
+	SubInfoExpirePrefix      string  `json:"sub_info_expire_prefix"`
+	SubInfoTrafficPrefix     string  `json:"sub_info_traffic_prefix"`
+	EnableSubTrafficHeader   bool    `json:"enable_sub_traffic_header"`
+	EnableOverrideScripts    bool    `json:"enable_override_scripts"`
+	SubscriptionOutputFormat string  `json:"subscription_output_format"`
 }
 
 func NewUserConfigHandler(repo *storage.TrafficRepository) http.Handler {
@@ -300,7 +300,7 @@ func handleUpdateUserConfig(w http.ResponseWriter, r *http.Request, repo *storag
 		CacheExpireMinutes:       settings.CacheExpireMinutes,
 		SyncTraffic:              settings.SyncTraffic,
 		EnableProbeBinding:       settings.EnableProbeBinding,
-		CustomRulesEnabled:       true, // 自定��规则始终启用
+		CustomRulesEnabled:       true, // 自定义规则始终启用
 		EnableShortLink:          payload.EnableShortLink,
 		TemplateVersion:          settings.TemplateVersion,
 		EnableProxyProvider:      settings.EnableProxyProvider,

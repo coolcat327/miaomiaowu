@@ -661,42 +661,42 @@ func parseFilenameFromContentDisposition(header string) string {
 }
 
 type subscribeFileRequest struct {
-	Name                string   `json:"name"`
-	Description         string   `json:"description"`
-	URL                 string   `json:"url"`
-	Type                string   `json:"type"`
-	Filename            string   `json:"filename"`
+	Name                      string   `json:"name"`
+	Description               string   `json:"description"`
+	URL                       string   `json:"url"`
+	Type                      string   `json:"type"`
+	Filename                  string   `json:"filename"`
 	AutoSyncCustomRules       *bool    `json:"auto_sync_custom_rules,omitempty"`
 	SelectedCustomRuleIDs     []int64  `json:"selected_custom_rule_ids,omitempty"`
 	SelectedOverrideScriptIDs []int64  `json:"selected_override_script_ids,omitempty"`
 	TemplateFilename          *string  `json:"template_filename,omitempty"`
 	SelectedTags              []string `json:"selected_tags,omitempty"`
-	CustomShortCode     *string  `json:"custom_short_code,omitempty"`      // 自定义短链接码
-	ExpireAt            *string  `json:"expire_at,omitempty"`
-	RawOutput           *bool    `json:"raw_output,omitempty"` // 非Clash配置，直接输出原始内容
-	TrafficLimit        *float64 `json:"traffic_limit,omitempty"`
-	StatsServerIDs      *string  `json:"stats_server_ids,omitempty"`
+	CustomShortCode           *string  `json:"custom_short_code,omitempty"` // 自定义短链接码
+	ExpireAt                  *string  `json:"expire_at,omitempty"`
+	RawOutput                 *bool    `json:"raw_output,omitempty"` // 非Clash配置，直接输出原始内容
+	TrafficLimit              *float64 `json:"traffic_limit,omitempty"`
+	StatsServerIDs            *string  `json:"stats_server_ids,omitempty"`
 }
 
 type subscribeFileDTO struct {
-	ID                  int64      `json:"id"`
-	Name                string     `json:"name"`
-	Description         string     `json:"description"`
-	Type                string     `json:"type"`
-	Filename            string     `json:"filename"`
-	ExpireAt            *time.Time `json:"expire_at,omitempty"`
-	AutoSyncCustomRules       bool     `json:"auto_sync_custom_rules"`
-	SelectedCustomRuleIDs     []int64  `json:"selected_custom_rule_ids"`
-	SelectedOverrideScriptIDs []int64  `json:"selected_override_script_ids"`
-	TemplateFilename          string   `json:"template_filename"`
-	SelectedTags              []string `json:"selected_tags"`
-	CustomShortCode     string     `json:"custom_short_code"`
-	RawOutput           bool       `json:"raw_output"`
-	TrafficLimit        *float64   `json:"traffic_limit"`
-	StatsServerIDs      string     `json:"stats_server_ids"`
-	CreatedAt           time.Time  `json:"created_at"`
-	UpdatedAt           time.Time  `json:"updated_at"`
-	LatestVersion       int64      `json:"latest_version,omitempty"`
+	ID                        int64      `json:"id"`
+	Name                      string     `json:"name"`
+	Description               string     `json:"description"`
+	Type                      string     `json:"type"`
+	Filename                  string     `json:"filename"`
+	ExpireAt                  *time.Time `json:"expire_at,omitempty"`
+	AutoSyncCustomRules       bool       `json:"auto_sync_custom_rules"`
+	SelectedCustomRuleIDs     []int64    `json:"selected_custom_rule_ids"`
+	SelectedOverrideScriptIDs []int64    `json:"selected_override_script_ids"`
+	TemplateFilename          string     `json:"template_filename"`
+	SelectedTags              []string   `json:"selected_tags"`
+	CustomShortCode           string     `json:"custom_short_code"`
+	RawOutput                 bool       `json:"raw_output"`
+	TrafficLimit              *float64   `json:"traffic_limit"`
+	StatsServerIDs            string     `json:"stats_server_ids"`
+	CreatedAt                 time.Time  `json:"created_at"`
+	UpdatedAt                 time.Time  `json:"updated_at"`
+	LatestVersion             int64      `json:"latest_version,omitempty"`
 }
 
 func convertSubscribeFile(file storage.SubscribeFile) subscribeFileDTO {
@@ -1058,7 +1058,7 @@ func (h *subscribeFilesHandler) handleUpdateContent(w http.ResponseWriter, r *ht
 			if issue.Level == validator.ErrorLevel {
 				errorMsg := issue.Message
 				if issue.Location != "" {
-					errorMsg = fmt.Sprintf("%s (位��: %s)", errorMsg, issue.Location)
+					errorMsg = fmt.Sprintf("%s (位置: %s)", errorMsg, issue.Location)
 				}
 				errorMessages = append(errorMessages, errorMsg)
 				logger.Info("[更新订阅文件] [配置校验] 错误", "message", errorMsg)
