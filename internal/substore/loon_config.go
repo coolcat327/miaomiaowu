@@ -182,6 +182,16 @@ func convertToLoonGroupType(clashType string) string {
 	}
 }
 
+func convertRuleURLToList(url string) string {
+	if strings.HasSuffix(url, ".yaml") {
+		return strings.TrimSuffix(url, ".yaml") + ".list"
+	}
+	if strings.HasSuffix(url, ".mrs") {
+		return strings.TrimSuffix(url, ".mrs") + ".list"
+	}
+	return url
+}
+
 func buildLoonRules(rules []string, ruleProviders map[string]ClashRuleProvider) string {
 	var lines []string
 	lines = append(lines, "[Rule]")
@@ -215,6 +225,7 @@ func buildLoonRules(rules []string, ruleProviders map[string]ClashRuleProvider) 
 				if provider, ok := ruleProviders[ruleSetName]; ok {
 					url := provider.URL
 					if url != "" {
+						url = convertRuleURLToList(url)
 						remoteRules = append(remoteRules, fmt.Sprintf("%s, policy=%s, tag=%s, enabled=true",
 							url, policy, ruleSetName))
 					}
