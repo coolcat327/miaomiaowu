@@ -1047,6 +1047,12 @@ func parseHysteriaGeneric(uri string, protocol string) (map[string]any, error) {
 	} else if downmbps := queryParams["downmbps"]; downmbps != "" {
 		node["down"] = downmbps
 	}
+
+	// Port hopping
+	if mport := queryParams["mport"]; mport != "" {
+		node["ports"] = mport
+	}
+
 	applyTlsSniFallback(node, "sni")
 
 	return node, nil

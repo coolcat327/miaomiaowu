@@ -1149,6 +1149,11 @@ func parseHysteriaURI(uri string, proxyType string) (map[string]interface{}, err
 		proxy["client-fingerprint"] = fp
 	}
 
+	// Port hopping
+	if mport := params["mport"]; mport != "" {
+		proxy["ports"] = mport
+	}
+
 	return proxy, nil
 }
 
