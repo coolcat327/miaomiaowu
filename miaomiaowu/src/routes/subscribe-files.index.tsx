@@ -3092,7 +3092,7 @@ function SubscribeFilesPage() {
                                           name: file.name,
                                           description: file.description,
                                           auto_sync_custom_rules: file.auto_sync_custom_rules,
-                                          custom_short_code: null,
+                                          custom_short_code: '',
                                         }
                                       }, {
                                         onSuccess: () => {
