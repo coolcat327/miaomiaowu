@@ -27,7 +27,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { parseProxyUrl, toClashProxy, type ProxyNode, type ClashProxy } from '@/lib/proxy-parser'
 import { load as parseYAML, dump as dumpYAML } from 'js-yaml'
-import { Check, Pencil, X, Undo2, Activity, Eye, Copy, ChevronDown, Link2, Flag, GripVertical, Zap, Loader2, Expand, List, ArrowUpToLine, ArrowDownToLine, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react'
+import { Check, Pencil, X, Undo2, Activity, Eye, Copy, ChevronDown, Link2, Flag, GripVertical, Zap, Loader2, Expand, List, ArrowUpToLine, ArrowDownToLine, ArrowUp, ArrowDown, ArrowUpDown, Gauge } from 'lucide-react'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import IpIcon from '@/assets/icons/ip.svg'
 import CaidanIcon from '@/assets/icons/125.svg'
@@ -38,6 +38,7 @@ import { countryCodeToFlag, hasRegionEmoji, getGeoIPInfo, stripFlagEmoji } from 
 import { Twemoji } from '@/components/twemoji'
 import { FlagEmojiPicker } from '@/components/flag-emoji-picker'
 import { useMediaQuery } from '@/hooks/use-media-query'
+import { SpeedTestDialog } from '@/components/speedtest-dialog'
 import {
   DndContext,
   closestCenter,
@@ -510,6 +511,8 @@ function NodesPage() {
   const [uriContent, setUriContent] = useState<string>('')
 
   // 临时订阅状态
+  const [speedDialogOpen, setSpeedDialogOpen] = useState(false)
+  const [speedDialogMin, setSpeedDialogMin] = useState(false)
   const [tempSubDialogOpen, setTempSubDialogOpen] = useState(false)
   const [tempSubMaxAccess, setTempSubMaxAccess] = useState<number>(1)
   const [tempSubExpireSeconds, setTempSubExpireSeconds] = useState<number>(60)
@@ -2944,6 +2947,14 @@ vless://uuid@example.com:443?type=ws&security=tls&path=/websocket#VLESS节点
                     </p>
                   </div>
                   <div className='flex flex-wrap gap-2 justify-end'>
+                    <Button
+                      variant='outline'
+                      size='sm'
+                      onClick={() => { setSpeedDialogOpen(true); setSpeedDialogMin(false) }}
+                    >
+                      <Gauge className='size-4 mr-1' />
+                      节点测速
+                    </Button>
                     <Button
                       variant='outline'
                       size='sm'
@@ -6434,6 +6445,23 @@ vless://uuid@example.com:443?type=ws&security=tls&path=/websocket#VLESS节点
           />
         </DialogContent>
       </Dialog>
+
+      {/* 节点测速 */}
+      <SpeedTestDialog
+        open={speedDialogOpen && !speedDialogMin}
+        onMinimize={() => setSpeedDialogMin(true)}
+        onClose={() => { setSpeedDialogOpen(false); setSpeedDialogMin(false) }}
+        nodes={savedNodes}
+      />
+      {speedDialogMin && (
+        <button
+          className='fixed bottom-6 right-6 z-50 flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-sm text-primary-foreground shadow-lg hover:opacity-90 transition-opacity'
+          onClick={() => setSpeedDialogMin(false)}
+        >
+          <Gauge className='size-4' />
+          测速中
+        </button>
+      )}
     </div>
   )
 }

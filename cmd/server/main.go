@@ -230,6 +230,13 @@ func main() {
 	mux.Handle("/api/user/short-link", auth.RequireToken(tokenStore, handler.NewShortLinkResetHandler(repo)))
 	mux.Handle("/api/user/custom-short-code", auth.RequireToken(tokenStore, handler.NewUserCustomShortCodeSelfHandler(repo)))
 
+	// Speed test endpoints
+	speedTesterWS := handler.NewSpeedTesterWSHandler(repo)
+	speedTestHandler := handler.NewSpeedTestHandler(repo)
+	speedTestHandler.SetTesterWS(speedTesterWS)
+	mux.Handle("/api/admin/speedtest/", auth.RequireAdmin(tokenStore, userRepo, speedTestHandler))
+	mux.Handle("/api/speedtest/tester/ws", speedTesterWS)
+
 	// Temporary subscription endpoints
 	mux.Handle("/api/admin/temp-subscription", auth.RequireAdmin(tokenStore, userRepo, handler.NewTempSubscriptionHandler()))
 	tempSubAccessHandler := handler.NewTempSubscriptionAccessHandler()
