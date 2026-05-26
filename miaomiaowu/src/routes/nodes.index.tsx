@@ -461,7 +461,7 @@ function NodesPage() {
   const [subscriptionTag, setSubscriptionTag] = useState<string>('')
   const [skipCertVerify, setSkipCertVerify] = useState<boolean>(() => {
     const cached = localStorage.getItem('mmw-skip-cert-verify')
-    return cached !== null ? cached === 'true' : true
+    return cached !== null ? cached === 'true' : false
   })
 
   // 导入节点卡片折叠状态 - 默认折叠
