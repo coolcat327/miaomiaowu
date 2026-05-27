@@ -250,6 +250,10 @@ MIT License
 <details>
 <summary>更新日志</summary>
 
+### v0.7.5 (2026-05-28)
+- 🌈 支持snell协议与egern reality
+- 🛠️ fix:节点测速UI交互BUG
+- 🌈 支持真延迟测试
 ### v0.7.4 (2026-05-26)
 - 🌈 导入节点增加跳过证书验证开关
 - 🌈 优化测速时间为8秒
