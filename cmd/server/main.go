@@ -17,6 +17,7 @@ import (
 	"miaomiaowu/internal/notify"
 	"miaomiaowu/internal/proxygroups"
 	"miaomiaowu/internal/storage"
+	"miaomiaowu/internal/patches"
 	"miaomiaowu/internal/version"
 	"miaomiaowu/internal/web"
 	ruletemplates "miaomiaowu/rule_templates"
@@ -76,6 +77,14 @@ func main() {
 	if err := ruletemplates.Ensure(ruleTemplatesDir); err != nil {
 		logger.Error("规则模板文件准备失败", "error", err)
 		os.Exit(1)
+	}
+
+	// rule_templates 补丁:Ensure 不覆盖已存在文件(保护用户自定义),
+	// 但对历史已知错误的 dns 块(语义比对,顺序无关)做一次精准替换。详见 internal/patches 包注释。
+	if patched, err := patches.ApplyDNSPatches(ruleTemplatesDir); err != nil {
+		logger.Warn("DNS 模板补丁应用过程出错(不影响启动)", "error", err)
+	} else if patched > 0 {
+		logger.Info("DNS 模板补丁已应用", "count", patched)
 	}
 
 	// 初始化代理组配置 Store（纯内存存储）
