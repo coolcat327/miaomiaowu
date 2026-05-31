@@ -250,6 +250,10 @@ MIT License
 <details>
 <summary>更新日志</summary>
 
+### v0.7.6 (2026-05-31)
+- 🌈 增加自定义安全封禁配置
+- 🛠️ fix:模板dns错误配置补丁
+- 🛠️ fix:模板dns错误配置补丁
 ### v0.7.5 (2026-05-28)
 - 🌈 支持snell协议与egern reality
 - 🛠️ fix:节点测速UI交互BUG
